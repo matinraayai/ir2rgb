@@ -9,7 +9,7 @@ class BaseOptions():
         self.initialized = False
 
     def initialize(self):                
-        self.parser.add_argument('--dataroot', type=str, default='datasets/Cityscapes/')        
+        self.parser.add_argument('--dataroot', type=str, default='datasets/KAIST/')        
         self.parser.add_argument('--batchSize', type=int, default=1, help='input batch size')
         self.parser.add_argument('--loadSize', type=int, default=512, help='scale images to this size')
         self.parser.add_argument('--fineSize', type=int, default=512, help='then crop to this size')
@@ -24,12 +24,12 @@ class BaseOptions():
         self.parser.add_argument('--n_blocks', type=int, default=9, help='number of resnet blocks in generator')
         self.parser.add_argument('--n_downsample_G', type=int, default=3, help='number of downsampling layers in netG')        
 
-        self.parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
+        self.parser.add_argument('--gpu_ids', type=str, default='0,1,2,3', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
         self.parser.add_argument('--n_gpus_gen', type=int, default=-1, help='how many gpus are used for generator (the rest are used for discriminator). -1 means use all gpus')
         self.parser.add_argument('--name', type=str, default='experiment_name', help='name of the experiment. It decides where to store samples and models')
         self.parser.add_argument('--dataset_mode', type=str, default='temporal', help='chooses how datasets are loaded. [unaligned | aligned | single]')
         self.parser.add_argument('--model', type=str, default='vid2vid', help='chooses which model to use. vid2vid, test')        
-        self.parser.add_argument('--nThreads', default=2, type=int, help='# threads for loading data')
+        self.parser.add_argument('--nThreads', default=16, type=int, help='# threads for loading data')
         self.parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints', help='models are saved here')
         self.parser.add_argument('--norm', type=str, default='batch', help='instance normalization or batch normalization')
         self.parser.add_argument('--serial_batches', action='store_true', help='if true, takes images in order to make batches, otherwise takes them randomly')
