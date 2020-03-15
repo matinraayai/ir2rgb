@@ -12,6 +12,8 @@ import util.util as util
 from util.visualizer import Visualizer
 from util import html
 
+
+# TODO: See if using multiple threads for test code is now possible in torch.
 opt = TestOptions().parse(save=False)
 opt.nThreads = 1   # test code only supports nThreads = 1
 opt.batchSize = 1  # test code only supports batchSize = 1
