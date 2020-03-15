@@ -10,7 +10,7 @@ import hashlib
 # os.system( 'wget http://multispectral.kaist.ac.kr/pedestrian/data-kaist/md5_checksum_small_files_from_KAIST.txt')
 wget_cmd = 'curl -LO '
 os.system( 'curl http://multispectral.kaist.ac.kr/pedestrian/data-kaist/md5_checksum_small_files_from_KAIST.txt')
-os.system( 'mkdir ../kaist-rgbt')
+os.system( 'mkdir ../../kaist-rgbt')
 
 md5 = {}
 with open( 'md5_checksum_small_files_from_KAIST.txt', 'r') as f:

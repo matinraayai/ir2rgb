@@ -2,13 +2,6 @@
 
 From vid2vid (https://github.com/NVIDIA/vid2vid)
 
-## Prerequisites
-- Linux or macOS
-- Python 3
-- GCC version <= 6
-- NVIDIA GPU + CUDA cuDNN
-- PyTorch 0.4+
-
 ## Additional downloads 
 - The file `FlowNet2_checkpoint.pth.tar` is too large to upload to github and 
 needs to be downloaded seperately. It contains the FlowNet2 model and is used 
