@@ -24,7 +24,7 @@ def mse_movie(original, predicted):
     assert original.shape == predicted.shape # need same number frames and shape
     
     ssim_total = 0
-    for frame in original.shape[0]:
+    for frame in range(original.shape[0]):
         ssim_total += mse_single_frame(original[frame, :,:], predicted[frame, :,:])
         
     return(ssim_total/original.shape[0])
@@ -40,7 +40,7 @@ def ssim_movie(original, predicted):
     assert original.shape == predicted.shape # need same number frames and shape
     
     ssim_total = 0
-    for frame in original.shape[0]:
+    for frame in range(original.shape[0]):
         ssim_total += ssim_single_frame(original[frame, :,:], predicted[frame, :,:])
         
     return(ssim_total/original.shape[0])
