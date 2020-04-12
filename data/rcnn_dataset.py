@@ -6,6 +6,35 @@ from data.image_folder import make_grouped_dataset, check_path_valid
 import torch
 from data.base_dataset import BaseDataset, get_img_params, get_transform, get_video_params
 
+def read_single_bounding_box(single_frame_text_file):
+    # Takes in a text file for a single frame
+    # Could have 0 or many subjects
+    
+    f = open(single_frame_text_file, "r")
+    num_boxes = -1
+    for box in f:
+        if num_boxes == -1:
+            num_boxes+=1
+        
+        else:
+            num_boxes+=1
+            print(box)
+       
+    bb_data = np.zeros((num_boxes, 4))
+    
+    f.seek(0)  
+    num_boxes = -1
+    for box in f:
+        if num_boxes == -1:
+            num_boxes+=1
+        else:
+            box_list = box.split()
+            bb_data[num_boxes, 0:4] = box_list[1:5]
+            num_boxes+=1
+        
+    f.close()
+    return(bb_data)
+    
 
 class RCNNDataset(object):
     def __init__(self, opt):
@@ -14,7 +43,7 @@ class RCNNDataset(object):
         self.dir_B = os.path.join(opt.dataroot, opt.phase + '_B')
         self.B_paths = sorted(make_grouped_dataset(self.dir_B))
         self.dir_annotations = os.path.join(opt.dataroot, opt.phase + '_annotations')
-        self.box_baths =sorted(make_grouped_dataset(self.dir_annotations))
+        self.box_paths = sorted(make_grouped_dataset(self.dir_annotations))
         
         check_path_valid(self.B_paths)
         check_path_valid(self.dir_annotations)
@@ -32,7 +61,8 @@ class RCNNDataset(object):
     def __getitem__(self, index):
         # load images and masks
         tG = self.opt.n_frames_G
-        B_paths = self.B_paths[index % self.n_of_seqs]                
+        B_paths = self.B_paths[index % self.n_of_seqs]  
+        bb_paths =  self.box_paths[index % self.n_of_seqs]              
         if self.opt.use_instance:
             I_paths = self.I_paths[index % self.n_of_seqs] 
             
