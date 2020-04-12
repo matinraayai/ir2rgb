@@ -9,17 +9,14 @@ from data.base_dataset import BaseDataset, get_img_params, get_transform, get_vi
 def read_single_bounding_box(single_frame_text_file):
     # Takes in a text file for a single frame
     # Could have 0 or many subjects
-    
     f = open(single_frame_text_file, "r")
     num_boxes = -1
     for box in f:
         if num_boxes == -1:
             num_boxes+=1
-        
         else:
             num_boxes+=1
             print(box)
-       
     bb_data = np.zeros((num_boxes, 4))
     
     f.seek(0)  
@@ -31,7 +28,6 @@ def read_single_bounding_box(single_frame_text_file):
             box_list = box.split()
             bb_data[num_boxes, 0:4] = box_list[1:5]
             num_boxes+=1
-        
     f.close()
     return(bb_data)
     
@@ -62,7 +58,7 @@ class RCNNDataset(object):
         # load images and masks
         tG = self.opt.n_frames_G
         B_paths = self.B_paths[index % self.n_of_seqs]  
-        bb_paths =  self.box_paths[index % self.n_of_seqs]              
+        bound_box_paths =  self.box_paths[index % self.n_of_seqs]              
         if self.opt.use_instance:
             I_paths = self.I_paths[index % self.n_of_seqs] 
             
@@ -70,25 +66,43 @@ class RCNNDataset(object):
         n_frames_total, start_idx, t_step = get_video_params(self.opt, self.n_frames_total, len(B_paths), index)     
 
         # setting transformers
-        B_img = Image.open(B_paths[start_idx]).convert('RGB')        
+        B_img = Image.open(B_paths[start_idx]).convert('RGB')    
+        
         params = get_img_params(self.opt, B_img.size)          
         transform_scaleB = get_transform(self.opt, params)                
         
         # read in images
-        B = inst = 0
-        for i in range(n_frames_total):            
-            B_path = B_paths[start_idx + i * t_step]                    
+        B = inst = 0      
+        for i in range(n_frames_total):  
+            B_path = B_paths[start_idx + i * t_step]  
+            bound_box_path = self.box_paths[index % self.n_of_seqs]                 
             Bi = self.get_image(B_path, transform_scaleB)
-                      
+            
+            boxes = read_single_bounding_box(bound_box_path)  # this is now in the shape [N, 4] N is the number of ojects in the image
+            boxes = torch.as_tensor(boxes, dtype=torch.float32)       
+            labels = torch.ones((boxes.shape[0],), dtype=torch.int64)
+            
+            image_id = torch.tensor([index])
+            area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
+            iscrowd = torch.zeros((boxes.shape[0],), dtype=torch.int64)
+            
             B = Bi if i == 0 else torch.cat([B, Bi], dim=0)            
-
+    
             if self.opt.use_instance:
                 I_path = I_paths[start_idx + i * t_step]                
                 Ii = self.get_image(I_path, transform_scaleB) * 255.0
-                inst = Ii if i == 0 else torch.cat([inst, Ii], dim=0)                
+                inst = Ii if i == 0 else torch.cat([inst, Ii], dim=0)   
+                 
 
-        return_list = {'B': B, 'inst': inst, 'B_paths': B_path}
-        return return_list
+        target = {}
+        target["boxes"] = boxes
+        target["labels"] = labels
+        target["image_id"] = image_id
+        target["area"] = area
+        target["iscrowd"] = iscrowd
+        
+        
+        return B_img, target
         
         
        
@@ -96,5 +110,4 @@ class RCNNDataset(object):
     def __len__(self):
         return len(self.imgs)
 
-datat = RCNNDataset('')
 
