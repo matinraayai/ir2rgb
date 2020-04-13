@@ -5,109 +5,63 @@ from PIL import Image
 from data.image_folder import make_grouped_dataset, check_path_valid
 import torch
 from data.base_dataset import BaseDataset, get_img_params, get_transform, get_video_params
+import torch.utils.data.dataset
 
-def read_single_bounding_box(single_frame_text_file):
+def read_bb_file(bb_file_path, x_dim, y_dim):
     # Takes in a text file for a single frame
     # Could have 0 or many subjects
-    f = open(single_frame_text_file, "r")
-    num_boxes = -1
-    for box in f:
-        if num_boxes == -1:
-            num_boxes+=1
-        else:
-            num_boxes+=1
-            print(box)
-    bb_data = np.zeros((num_boxes, 4))
-    
-    f.seek(0)  
-    num_boxes = -1
-    for box in f:
-        if num_boxes == -1:
-            num_boxes+=1
-        else:
-            box_list = box.split()
-            bb_data[num_boxes, 0:4] = box_list[1:5]
-            num_boxes+=1
-    f.close()
-    return(bb_data)
+    with open(bb_file_path, "r") as f:
+        bb_strings = f.readlines()[1:]
+    bb_data = [bb_string.split() for bb_string in bb_strings]
+    bb_data = [[int(bb_corner) for bb_corner in bb_entry[1:5]] for bb_entry in bb_data]
+    #for i, bb_entry in enumerate(bb_data):
+    #    x_1 = bb_entry[0]
+    #    x_2 = bb_entry[1]
+    #    y_1 = bb_entry[2]
+    #    y_2 = bb_entry[3]
+    #    bb_data[i][0] = min(x_1, x_2)
+    #    bb_data[i][1] = min(y_1, y_2)
+    #    bb_data[i][2] = max(x_1, x_2)
+    #    bb_data[i][3] = max(y_1, y_2) 
+    bb_data.insert(0, [320, 256, 640, 512]) 
+    bb_data = torch.tensor(bb_data, dtype=torch.float32)
+    #print(bb_data)
+    return bb_data
     
 
-class RCNNDataset(object):
+class RCNNDataset(torch.utils.data.dataset.Dataset):
     def __init__(self, opt):
         self.opt = opt
         self.root = opt.dataroot
+        # Path to the RGB images.
         self.dir_B = os.path.join(opt.dataroot, opt.phase + '_B')
-        self.B_paths = sorted(make_grouped_dataset(self.dir_B))
+        self.B_paths = sorted(make_grouped_dataset(self.dir_B))[0]
+        # Path to the Annotation/Bounding Boxes.
         self.dir_annotations = os.path.join(opt.dataroot, opt.phase + '_annotations')
-        self.box_paths = sorted(make_grouped_dataset(self.dir_annotations))
-        
-        check_path_valid(self.B_paths)
-        check_path_valid(self.dir_annotations)
-        
-        if opt.use_instance:                
-            self.dir_inst = os.path.join(opt.dataroot, opt.phase + '_inst')
-            self.I_paths = sorted(make_grouped_dataset(self.dir_inst))
-            check_path_valid(self.B_paths, self.I_paths)
+        self.box_paths = sorted(make_grouped_dataset(self.dir_annotations))[0]
+        assert len(self.B_paths) == len(self.box_paths)
 
-        self.n_of_seqs = len(self.B_paths)                 # number of sequences to train       
-        self.seq_len_max = max([len(B) for B in self.B_paths])        
-        self.n_frames_total = self.opt.n_frames_total      # current number of frames to train in a single iteration
-        
 
     def __getitem__(self, index):
-        # load images and masks
-        tG = self.opt.n_frames_G
-        B_paths = self.B_paths[index % self.n_of_seqs]  
-        bound_box_paths =  self.box_paths[index % self.n_of_seqs]              
-        if self.opt.use_instance:
-            I_paths = self.I_paths[index % self.n_of_seqs] 
-            
-        # setting parameters
-        n_frames_total, start_idx, t_step = get_video_params(self.opt, self.n_frames_total, len(B_paths), index)     
-
-        # setting transformers
-        B_img = Image.open(B_paths[start_idx]).convert('RGB')    
-        
-        params = get_img_params(self.opt, B_img.size)          
-        transform_scaleB = get_transform(self.opt, params)                
-        
-        # read in images
-        B = inst = 0      
-        for i in range(n_frames_total):  
-            B_path = B_paths[start_idx + i * t_step]  
-            bound_box_path = self.box_paths[index % self.n_of_seqs]                 
-            Bi = self.get_image(B_path, transform_scaleB)
-            
-            boxes = read_single_bounding_box(bound_box_path)  # this is now in the shape [N, 4] N is the number of ojects in the image
-            boxes = torch.as_tensor(boxes, dtype=torch.float32)       
-            labels = torch.ones((boxes.shape[0],), dtype=torch.int64)
-            
-            image_id = torch.tensor([index])
-            area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
-            iscrowd = torch.zeros((boxes.shape[0],), dtype=torch.int64)
-            
-            B = Bi if i == 0 else torch.cat([B, Bi], dim=0)            
-    
-            if self.opt.use_instance:
-                I_path = I_paths[start_idx + i * t_step]                
-                Ii = self.get_image(I_path, transform_scaleB) * 255.0
-                inst = Ii if i == 0 else torch.cat([inst, Ii], dim=0)   
-                 
+        aug_index = index % len(self.B_paths)
+        # Load the image
+        B_img = Image.open(self.B_paths[aug_index]).convert('RGB')
+        B_img = torch.from_numpy(np.array(B_img, dtype=np.float32, copy=False)) / 255.
+        B_img = B_img.reshape((B_img.shape[2], B_img.shape[1], B_img.shape[0]))
+      #  print(B_img.size())
+        # Load the bounding box: 
+        bbox = torch.as_tensor(read_bb_file(self.box_paths[aug_index], B_img.shape[1], B_img.shape[2]))
+        labels = [2] + [1] * (len(bbox) - 1)
+        labels = torch.tensor(labels, dtype=torch.int64)
+     #   print(labels)            
+        image_id = torch.tensor([aug_index])
 
         target = {}
-        target["boxes"] = boxes
+        target["boxes"] = bbox
         target["labels"] = labels
-        target["image_id"] = image_id
-        target["area"] = area
-        target["iscrowd"] = iscrowd
-        
         
         return B_img, target
         
-        
-       
-
     def __len__(self):
-        return len(self.imgs)
-
+        return len(self.B_paths)
 
