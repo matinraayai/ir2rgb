@@ -31,13 +31,12 @@ model.to('cuda')
 
 # construct an optimizer
 params = [p for p in model.parameters() if p.requires_grad]
-optimizer = torch.optim.SGD(params, lr=0.005,
-                            momentum=0.9, weight_decay=0.0005)
+optimizer = torch.optim.Adam(params, lr=0.001,
+                             weight_decay=0.0005)
 # and a learning rate scheduler
 lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                               step_size=3,
-                                               gamma=0.1)
-
+                                               step_size=1,
+                                               gamma=0.001)
 # let's train it for 10 epochs
 num_epochs = 50
 
@@ -47,4 +46,6 @@ for epoch in range(num_epochs):
     # update the learning rate
     lr_scheduler.step()
     # evaluate on the test dataset
-    evaluate(model, data_loader, device='cuda')
+#    evaluate(model, data_loader, device='cuda')
+    if not (epoch % 10):
+        torch.save(model.state_dict(), './checkpoints/RCNN/rcnn_checkpoint_epoch_%d.pt' % epoch)
