@@ -10,6 +10,7 @@ from data.data_loader import CreateDataLoader
 from models.models import create_model, create_optimizer, init_params, save_models, update_models
 import util.util as util
 from util.visualizer import Visualizer
+from util.engine import train_rcnn_forward
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -71,6 +72,10 @@ def train():
 				flow_ref, conf_ref = flowNet(real_B, real_B_prev)		# reference flows and confidences				 
 				fake_B_prev = modelG.module.compute_fake_B_prev(real_B_prev, fake_B_prev_last, fake_B)
 				fake_B_prev_last = fake_B_last
+                
+                  # Now run through RCNN
+                  rcnn_loss = train_rcnn_forward(rcnn_model, rcnn_optimizer, images, targets, 'cuda', epoch)
+                  
 			   
 				losses = modelD(0, reshape([real_B, fake_B, fake_B_raw, real_A, real_B_prev, fake_B_prev, flow, weight, flow_ref, conf_ref]))
 				losses = [ torch.mean(x) if x is not None else 0 for x in losses ]
@@ -94,7 +99,7 @@ def train():
 				
                     #TODO: implement this following line and determine what to use as alpha
                   model_mixing_parameter = 1 # have this be a value between [0,1]
-                  #loss_g = loss_G + model_mixing_parameter * loss_R_CNN
+                  loss_g = loss_G + model_mixing_parameter * rcnn_loss
                 
 				losses_G.append(loss_G.item())
 				losses_D.append(loss_D.item())
