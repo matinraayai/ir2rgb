@@ -81,9 +81,10 @@ def train():
 				fake_B_prev_last = fake_B_last
 
 
-
-                # Now run through RCNN
-                rcnn_loss = train_rcnn_forward(rcnn_model, rcnn_optimizer, images, targets, 'cuda', epoch)
+                  # Now run through RCNN
+                  
+                  targets = # how can we get the bounding boxes here?
+                  rcnn_loss = train_rcnn_forward(rcnn_model, rcnn_optimizer, fake_b, targets, 'cuda', epoch)
                   
 			   
 				losses = modelD(0, reshape([real_B, fake_B, fake_B_raw, real_A, real_B_prev, fake_B_prev, flow, weight, flow_ref, conf_ref]))
