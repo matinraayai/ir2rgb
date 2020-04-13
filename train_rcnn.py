@@ -1,13 +1,26 @@
+"""
+Author: Stephen Schmidt 
+Training script for the RCNN model on the KAIST dataset.
+"""
+
+
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from data.rcnn_dataset import RCNNDataset
-from engine import train_one_epoch, evaluate
-import utils
 import torch
+from options.train_options import TrainOptions
+from util import utils
+from util.engine import train_one_epoch, evaluate
 
 
 model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
-dataset = RCNNDataset()
+opt = TrainOptions().parse()
+if opt.debug:
+    opt.display_freq = 1
+    opt.print_freq = 1
+    opt.nThreads = 1
+
+dataset = RCNNDataset(opt)
 data_loader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True, num_workers=4, collate_fn=utils.collate_fn)
 
 # For Training
