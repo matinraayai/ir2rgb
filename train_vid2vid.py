@@ -10,6 +10,8 @@ from data.data_loader import CreateDataLoader
 from models.models import create_model, create_optimizer, init_params, save_models, update_models
 import util.util as util
 from util.visualizer import Visualizer
+from util.engine import train_rcnn_forward
+from data.rcnn_dateset import read_bb_file
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -57,13 +59,18 @@ def train():
 			n_frames_total, n_frames_load, t_len = data_loader.dataset.init_data_params(data, n_gpus, tG)
 			fake_B_prev_last, frames_all = data_loader.dataset.init_data(t_scales)
 
+			A_path = data['A_path']
+
+			T_path = A_path.replace('train_A', 'train_T')
+
+
 			for i in range(0, n_frames_total, n_frames_load):
 				input_A, input_B, inst_A = data_loader.dataset.prepare_data(data, i, input_nc, output_nc)
-
+				
 				###################################### Forward Pass ##########################
 				####### generator				   
 				fake_B, fake_B_raw, flow, weight, real_A, real_Bp, fake_B_last = modelG(input_A, input_B, inst_A, fake_B_prev_last)
-
+				
 
 				####### discriminator			 
 				### individual frame discriminator			
@@ -72,6 +79,13 @@ def train():
 				fake_B_prev = modelG.module.compute_fake_B_prev(real_B_prev, fake_B_prev_last, fake_B)
 				fake_B_prev_last = fake_B_last
 
+
+                # Now run through RCNN
+                  
+                targets = # how can we get the bounding boxes here?
+        		rcnn_loss = train_rcnn_forward(rcnn_model, rcnn_optimizer, fake_b, targets, 'cuda', epoch)
+                  
+			   
 				losses = modelD(0, reshape([real_B, fake_B, fake_B_raw, real_A, real_B_prev, fake_B_prev, flow, weight, flow_ref, conf_ref]))
 				losses = [ torch.mean(x) if x is not None else 0 for x in losses ]
 				loss_dict = dict(zip(modelD.module.loss_names, losses))
@@ -91,10 +105,16 @@ def train():
 
 				# collect losses
 				loss_G, loss_D, loss_D_T, t_scales_act = modelD.module.get_losses(loss_dict, loss_dict_T, t_scales)
-
+				
+                #TODO: implement this following line and determine what to use as alpha
+                model_mixing_parameter = 1 # have this be a value between [0,1]
+                loss_g = loss_G + model_mixing_parameter * rcnn_loss
+                
 				losses_G.append(loss_G.item())
 				losses_D.append(loss_D.item())
-
+                
+                
+                
 				###################################### Backward Pass #################################				   
 				# update generator weights	   
 				loss_backward(opt, loss_G, optimizer_G)				   
@@ -131,7 +151,7 @@ def train():
 			if epoch_iter > dataset_size - opt.batchSize:
 				epoch_iter = 0
 				break
-
+		   
 		# end of epoch 
 		iter_end_time = time.time()
 		visualizer.vis_print('End of epoch %d / %d \t Time Taken: %d sec' %
@@ -140,10 +160,10 @@ def train():
 		### save model for this epoch and update model params
 		save_models(opt, epoch, epoch_iter, total_steps, visualizer, iter_path, modelG, modelD, end_of_epoch=True)
 		update_models(opt, epoch, modelG, modelD, data_loader) 
-
+		
 		from matplotlib import pyplot as plt
 		plt.switch_backend('agg')
-
+		
 		# Plot Losses
 		plt.plot(losses_G,'-b', label='losses_G')
 		plt.plot(losses_D,'-r', label='losses_D')
