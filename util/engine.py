@@ -19,9 +19,8 @@ def train_rcnn_forward(model, optimizer, images, targets, device, epoch):
 
     losses = sum(loss for loss in loss_dict.values())
     return(losses)
-    
 
-def train_one_epoch( print_freq):
+def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
     # modified to simply return the loss and not yet update weights
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
