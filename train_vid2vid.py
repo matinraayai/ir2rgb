@@ -11,6 +11,7 @@ from models.models import create_model, create_optimizer, init_params, save_mode
 import util.util as util
 from util.visualizer import Visualizer
 from util.engine import train_rcnn_forward
+from data.rcnn_dateset import read_bb_file
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -58,6 +59,12 @@ def train():
 			n_frames_total, n_frames_load, t_len = data_loader.dataset.init_data_params(data, n_gpus, tG)
 			fake_B_prev_last, frames_all = data_loader.dataset.init_data(t_scales)
 
+			A_path = data['A_path']
+
+			T_path = A_path.replace('train_A', 'train_T')
+			target = read_bb_file(T_path)
+
+
 			for i in range(0, n_frames_total, n_frames_load):
 				input_A, input_B, inst_A = data_loader.dataset.prepare_data(data, i, input_nc, output_nc)
 				
@@ -72,9 +79,11 @@ def train():
 				flow_ref, conf_ref = flowNet(real_B, real_B_prev)		# reference flows and confidences				 
 				fake_B_prev = modelG.module.compute_fake_B_prev(real_B_prev, fake_B_prev_last, fake_B)
 				fake_B_prev_last = fake_B_last
-                
-                  # Now run through RCNN
-                  rcnn_loss = train_rcnn_forward(rcnn_model, rcnn_optimizer, images, targets, 'cuda', epoch)
+
+
+
+                # Now run through RCNN
+                rcnn_loss = train_rcnn_forward(rcnn_model, rcnn_optimizer, images, targets, 'cuda', epoch)
                   
 			   
 				losses = modelD(0, reshape([real_B, fake_B, fake_B_raw, real_A, real_B_prev, fake_B_prev, flow, weight, flow_ref, conf_ref]))
