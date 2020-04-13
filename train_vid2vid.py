@@ -94,7 +94,7 @@ def train():
 				
 				losses_G.append(loss_G.item())
 				losses_D.append(loss_D.item())
-				
+                
 				###################################### Backward Pass #################################				   
 				# update generator weights	   
 				loss_backward(opt, loss_G, optimizer_G)				   
