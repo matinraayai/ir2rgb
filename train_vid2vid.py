@@ -92,8 +92,14 @@ def train():
 				# collect losses
 				loss_G, loss_D, loss_D_T, t_scales_act = modelD.module.get_losses(loss_dict, loss_dict_T, t_scales)
 				
+                    #TODO: implement this following line and determine what to use as alpha
+                  model_mixing_parameter = 1 # have this be a value between [0,1]
+                  #loss_g = loss_G + model_mixing_parameter * loss_R_CNN
+                
 				losses_G.append(loss_G.item())
 				losses_D.append(loss_D.item())
+                
+                
                 
 				###################################### Backward Pass #################################				   
 				# update generator weights	   
