@@ -62,7 +62,6 @@ def train():
 			A_path = data['A_path']
 
 			T_path = A_path.replace('train_A', 'train_T')
-			target = read_bb_file(T_path)
 
 
 			for i in range(0, n_frames_total, n_frames_load):
@@ -81,10 +80,10 @@ def train():
 				fake_B_prev_last = fake_B_last
 
 
-                  # Now run through RCNN
+                # Now run through RCNN
                   
-                  targets = # how can we get the bounding boxes here?
-                  rcnn_loss = train_rcnn_forward(rcnn_model, rcnn_optimizer, fake_b, targets, 'cuda', epoch)
+                targets = # how can we get the bounding boxes here?
+        		rcnn_loss = train_rcnn_forward(rcnn_model, rcnn_optimizer, fake_b, targets, 'cuda', epoch)
                   
 			   
 				losses = modelD(0, reshape([real_B, fake_B, fake_B_raw, real_A, real_B_prev, fake_B_prev, flow, weight, flow_ref, conf_ref]))
@@ -107,9 +106,9 @@ def train():
 				# collect losses
 				loss_G, loss_D, loss_D_T, t_scales_act = modelD.module.get_losses(loss_dict, loss_dict_T, t_scales)
 				
-                    #TODO: implement this following line and determine what to use as alpha
-                  model_mixing_parameter = 1 # have this be a value between [0,1]
-                  loss_g = loss_G + model_mixing_parameter * rcnn_loss
+                #TODO: implement this following line and determine what to use as alpha
+                model_mixing_parameter = 1 # have this be a value between [0,1]
+                loss_g = loss_G + model_mixing_parameter * rcnn_loss
                 
 				losses_G.append(loss_G.item())
 				losses_D.append(loss_D.item())
