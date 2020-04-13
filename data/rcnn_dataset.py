@@ -23,7 +23,7 @@ def read_bb_file(bb_file_path, x_dim, y_dim):
     #    bb_data[i][1] = min(y_1, y_2)
     #    bb_data[i][2] = max(x_1, x_2)
     #    bb_data[i][3] = max(y_1, y_2) 
-    bb_data.insert(0, [320, 256, 640, 512]) 
+    bb_data.insert(0, [1, 1, 320, 256]) 
     bb_data = torch.tensor(bb_data, dtype=torch.float32)
     #print(bb_data)
     return bb_data
