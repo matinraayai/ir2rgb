@@ -1,79 +1,93 @@
-### Copyright (C) 2017 NVIDIA Corporation. All rights reserved. 
-### Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
-import numpy as np
+"""
+### Copyright (C) 2017 NVIDIA Corporation. All rights reserved.
+### Licensed under the CC BY-NC-SA 4.0 license
+(https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
+"""
 import torch
-import os
-import sys
-from collections import OrderedDict
-from torch.autograd import Variable
 import util.util as util
 from .base_model import BaseModel
 from . import networks
 
+"""
+Original Discriminator for the Vid2Vid model.
+"""
 class Vid2VidModelD(BaseModel):
     def name(self):
         return 'Vid2VidModelD'
 
     def initialize(self, opt):
-        BaseModel.initialize(self, opt)        
+        BaseModel.initialize(self, opt)
         gpu_split_id = opt.n_gpus_gen
         if opt.batchSize == 1:
             gpu_split_id += 1
-        self.gpu_ids = ([opt.gpu_ids[0]] + opt.gpu_ids[gpu_split_id:]) if opt.n_gpus_gen != len(opt.gpu_ids) else opt.gpu_ids
+        self.gpu_ids = ([opt.gpu_ids[0]] + opt.gpu_ids[gpu_split_id:]) \
+                       if opt.n_gpus_gen != len(opt.gpu_ids) else opt.gpu_ids
         if not opt.debug:
-            torch.backends.cudnn.benchmark = True    
-        self.tD = opt.n_frames_D  
-        self.output_nc = opt.output_nc        
+            torch.backends.cudnn.benchmark = True
+        self.tD = opt.n_frames_D
+        self.output_nc = opt.output_nc 
 
-        # define networks        
-        # single image discriminator
+        # Network Definitions:=================================================# 
+        print("Initializing the discriminator network...")
+        # Single Image Discriminator:==========================================#
         self.input_nc = opt.label_nc if opt.label_nc != 0 else opt.input_nc
         if opt.use_instance:
             self.input_nc += 1
         netD_input_nc = self.input_nc + opt.output_nc
-               
+
         self.netD = networks.define_D(netD_input_nc, opt.ndf, opt.n_layers_D, opt.norm,
                                       opt.num_D, not opt.no_ganFeat, gpu_ids=self.gpu_ids)
 
-        if opt.add_face_disc:            
-            self.netD_f = networks.define_D(netD_input_nc, opt.ndf, opt.n_layers_D, opt.norm,
-                                            max(1, opt.num_D - 2), not opt.no_ganFeat, gpu_ids=self.gpu_ids)
-                    
-        # temporal discriminator
-        netD_input_nc = opt.output_nc * opt.n_frames_D + 2 * (opt.n_frames_D-1)        
+        if opt.add_face_disc:
+            self.netD_f = networks.define_D(netD_input_nc, opt.ndf,
+                                            opt.n_layers_D, opt.norm,
+                                            max(1, opt.num_D - 2),
+                                            not opt.no_ganFeat,
+                                            gpu_ids=self.gpu_ids)
+
+        # Temporal Discriminator:==============================================#
+        netD_input_nc = opt.output_nc * opt.n_frames_D + 2 * (opt.n_frames_D-1)
         for s in range(opt.n_scales_temporal):
-            setattr(self, 'netD_T'+str(s), networks.define_D(netD_input_nc, opt.ndf, opt.n_layers_D, opt.norm,
-                    opt.num_D, not opt.no_ganFeat, gpu_ids=self.gpu_ids))        
+            setattr(self,
+                    'netD_T' + str(s),
+                    networks.define_D(netD_input_nc,
+                                      opt.ndf,
+                                      opt.n_layers_D,
+                                      opt.norm,
+                                      opt.num_D,
+                                      not opt.no_ganFeat,
+                                      gpu_ids=self.gpu_ids))
+        print("Discriminator initialized.")
 
-        print('---------- Networks initialized -------------') 
-        print('-----------------------------------------------')
-
-        # load networks
-        if opt.continue_train or opt.load_pretrain:          
-            self.load_network(self.netD, 'D', opt.which_epoch, opt.load_pretrain)            
+        # Load saved weights from disk:========================================#
+        if opt.continue_train or opt.load_pretrain:
+            self.load_network(self.netD, 'D', opt.which_epoch, opt.load_pretrain)
             for s in range(opt.n_scales_temporal):
-                self.load_network(getattr(self, 'netD_T'+str(s)), 'D_T'+str(s), opt.which_epoch, opt.load_pretrain)
+                self.load_network(getattr(self, 'netD_T' + str(s)),
+                                  'D_T'+str(s),
+                                  opt.which_epoch,
+                                  opt.load_pretrain)
             if opt.add_face_disc:
                 self.load_network(self.netD_f, 'D_f', opt.which_epoch, opt.load_pretrain)
-           
-        # set loss functions and optimizers          
-        self.old_lr = opt.lr
-        # define loss functions
-        self.criterionGAN = networks.GANLoss(opt.gan_mode, tensor=self.Tensor)   
+
+        # Loss functions:======================================================#
+        self.criterionGAN = networks.GANLoss(opt.gan_mode, tensor=self.Tensor)
         self.criterionFlow = networks.MaskedL1Loss()
         self.criterionWarp = networks.MaskedL1Loss()
         self.criterionFeat = torch.nn.L1Loss()
         if not opt.no_vgg:
             self.criterionVGG = networks.VGGLoss(self.gpu_ids[0])
 
-        self.loss_names = ['G_VGG', 'G_GAN', 'G_GAN_Feat',                            
+        self.loss_names = ['G_VGG', 'G_GAN', 'G_GAN_Feat',
                            'D_real', 'D_fake',
-                           'G_Warp', 'F_Flow', 'F_Warp', 'W']                
-        self.loss_names_T = ['G_T_GAN', 'G_T_GAN_Feat', 'D_T_real', 'D_T_fake', 'G_T_Warp']     
+                           'G_Warp', 'F_Flow', 'F_Warp', 'W']
+        self.loss_names_T = ['G_T_GAN', 'G_T_GAN_Feat',
+                             'D_T_real', 'D_T_fake', 'G_T_Warp']
         if opt.add_face_disc:
             self.loss_names += ['G_f_GAN', 'G_f_GAN_Feat', 'D_f_real', 'D_f_fake']
-
-        # initialize optimizers D and D_T                                            
+        # Set optimizers:======================================================#
+        self.old_lr = opt.lr
+        # initialize optimizers D and D_T:=====================================#                                
         params = list(self.netD.parameters())
         if opt.add_face_disc:
             params += list(self.netD_f.parameters())
@@ -83,7 +97,7 @@ class Vid2VidModelD(BaseModel):
         else:
             beta1, beta2 = opt.beta1, 0.999
             lr = opt.lr
-        self.optimizer_D = torch.optim.Adam(params, lr=lr, betas=(beta1, beta2))        
+        self.optimizer_D = torch.optim.Adam(params, lr=lr, betas=(beta1, beta2))
 
         for s in range(opt.n_scales_temporal):            
             params = list(getattr(self, 'netD_T'+str(s)).parameters())          
