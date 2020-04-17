@@ -791,14 +791,16 @@ class VGGLoss(nn.Module):
         return loss
 
 
-from torchvision import models
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 class RCNNLoss(nn.Module):
     def __init__(self, num_classes):
+        super(RCNNLoss, self).__init__()
+        import torchvision
+        from torchvision import models
+        from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
         # load an instance segmentation model pre-trained pre-trained on COCO
         self.model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
         # get number of input features for the classifier
-        in_features = model.roi_heads.box_predictor.cls_score.in_features
+        in_features = self.model.roi_heads.box_predictor.cls_score.in_features
         # replace the pre-trained head with a new one
         self.model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
 
@@ -859,6 +861,7 @@ class MultiscaleL1Loss(nn.Module):
 
 class Vgg19(nn.Module):
     def __init__(self, requires_grad=False):
+        from torchvision import models
         super(Vgg19, self).__init__()
         vgg_pretrained_features = models.vgg19(pretrained=True).features
         self.slice1 = torch.nn.Sequential()
