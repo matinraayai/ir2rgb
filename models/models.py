@@ -1,18 +1,23 @@
-### Copyright (C) 2017 NVIDIA Corporation. All rights reserved. 
-### Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
+"""
+### Copyright (C) 2017 NVIDIA Corporation. All rights reserved.
+### Licensed under the CC BY-NC-SA 4.0 license
+(https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
+"""
 import os
+import fractions
 import torch
 import torch.nn as nn
 import numpy as np
-import fractions
-def lcm(a,b): return abs(a * b)/fractions.gcd(a,b) if a and b else 0
+
+def lcm(a, b):
+    return abs(a * b) / fractions.gcd(a, b) if a and b else 0
 
 def wrap_model(opt, modelG, modelD, flowNet):
     if opt.n_gpus_gen == len(opt.gpu_ids):
         modelG = myModel(opt, modelG)
         modelD = myModel(opt, modelD)
         flowNet = myModel(opt, flowNet)
-    else:             
+    else:
         if opt.batchSize == 1:
             gpu_split_id = opt.n_gpus_gen + 1
             modelG = nn.DataParallel(modelG, device_ids=opt.gpu_ids[0:1])                
@@ -59,7 +64,9 @@ class myModel(nn.Module):
         return tensors
 
 def create_model(opt):    
-    print(opt.model)            
+    print("=====================Creating Model=================================")
+    print("Options for this model:")
+    print(opt.model)
     if opt.model == 'vid2vid':
         from .vid2vid_model_G import Vid2VidModelG
         modelG = Vid2VidModelG()    
@@ -85,8 +92,8 @@ def create_model(opt):
 
 def create_optimizer(opt, models):
     modelG, modelD, flowNet = models
-    optimizer_D_T = []    
-    if opt.fp16:              
+    optimizer_D_T = [] 
+    if opt.fp16:
         from apex import amp
         for s in range(opt.n_scales_temporal):
             optimizer_D_T.append(getattr(modelD, 'optimizer_D_T'+str(s)))
