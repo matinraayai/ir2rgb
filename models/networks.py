@@ -790,6 +790,26 @@ class VGGLoss(nn.Module):
             loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].detach())        
         return loss
 
+
+from torchvision import models
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+class RCNNLoss(nn.Module):
+    def __init__(self, num_classes):
+        # load an instance segmentation model pre-trained pre-trained on COCO
+        self.model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
+        # get number of input features for the classifier
+        in_features = model.roi_heads.box_predictor.cls_score.in_features
+        # replace the pre-trained head with a new one
+        self.model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+
+    def forward(self, fake_B, annotation):
+        # TODO: get the loss explicitly
+        prediction = self.model(*input)
+        loss = 0
+
+        return loss
+
+
 class CrossEntropyLoss(nn.Module):
     def __init__(self, label_nc):
         super(CrossEntropyLoss, self).__init__()
@@ -836,7 +856,7 @@ class MultiscaleL1Loss(nn.Module):
                     mask = self.downsample(mask)
         return loss
 
-from torchvision import models
+
 class Vgg19(nn.Module):
     def __init__(self, requires_grad=False):
         super(Vgg19, self).__init__()
@@ -868,3 +888,5 @@ class Vgg19(nn.Module):
         h_relu5 = self.slice5(h_relu4)                
         out = [h_relu1, h_relu2, h_relu3, h_relu4, h_relu5]
         return out
+
+

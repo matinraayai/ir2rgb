@@ -65,7 +65,7 @@ def train():
             fake_B_prev_last, frames_all = data_loader.dataset.init_data(t_scales)
 
             for i in range(0, n_frames_total, n_frames_load):
-                input_A, input_B, inst_A = \
+                input_A, input_B, input_C, inst_A = \
                         data_loader.dataset.prepare_data(data, i, input_nc, output_nc)
 
     ############################### Forward Pass ###############################
@@ -86,7 +86,7 @@ def train():
 
                 losses = modelD(0, reshape([real_B, fake_B, fake_B_raw, real_A,
                                             real_B_prev, fake_B_prev, flow,
-                                            weight, flow_ref, conf_ref]))
+                                            weight, flow_ref, conf_ref, input_C]))
                 losses = [torch.mean(x) if x is not None else 0 for x in losses]
                 loss_dict = dict(zip(modelD.module.loss_names, losses))
 

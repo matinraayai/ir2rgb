@@ -87,8 +87,8 @@ def create_model(opt):
         modelG = Vid2VidRCNNModelG()
         modelG.initialize(opt)
         if opt.isTrain:
-            from .vid2vid_model_D import Vid2VidModelD
-            modelD = Vid2VidModelD()
+            from .vid2vidRCNN_model_D import Vid2VidRCNNModelD
+            modelD = Vid2VidRCNNModelD()
             modelD.initialize(opt)
     else:
         raise ValueError("Model [%s] not recognized." % opt.model)

@@ -16,6 +16,9 @@ def CreateDataset(opt):
     elif opt.dataset_mode == 'test':
         from data.test_dataset import TestDataset
         dataset = TestDataset()
+    elif opt.dataset_mode == 'temporal_rcnn':
+        from data.temporal_rcnn_dataset import TemporalRCNNDataset
+        dataset = TemporalRCNNDataset()
     else:
         raise ValueError("Dataset [%s] not recognized." % opt.dataset_mode)
 
