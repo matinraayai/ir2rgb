@@ -77,7 +77,8 @@ class BaseDataset(data.Dataset):
         input_A = (data['A'][:, i*input_nc:(i+t_len)*input_nc, ...]).view(-1, t_len, input_nc, height, width)
         input_B = (data['B'][:, i*output_nc:(i+t_len)*output_nc, ...]).view(-1, t_len, output_nc, height, width)
         # TODO: not sure the dimension for annotations
-        input_C = (data['C'][:, i:i+t_len, ...]).view(-1, t_len, 2, 1, 4)
+        print(data['C'][:, i: i + t_len, ...].shape)
+        input_C = (data['C'][:, i:i+t_len, ...]).view(-1, t_len, 1, 1, 4)
         inst_A = (data['inst'][:, i:i+t_len, ...]).view(-1, t_len, 1, height, width) if len(data['inst'].size()) > 2 else None
         return [input_A, input_B, input_C, inst_A]
 

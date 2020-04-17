@@ -175,7 +175,8 @@ def train():
 
         from matplotlib import pyplot as plt
         plt.switch_backend('agg')
-
+        print("Generator Loss: %f." % losses_G[-1])
+        print("Discriminator Loss: %f." % losses_D[-1])
 	#Plot Losses
         plt.plot(losses_G, '-b', label='losses_G')
         plt.plot(losses_D, '-r', label='losses_D')

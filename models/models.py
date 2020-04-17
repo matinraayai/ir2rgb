@@ -81,7 +81,7 @@ def create_model(opt):
         if opt.isTrain:
             from .vid2vid_model_D import Vid2VidModelD
             modelD = Vid2VidModelD()
-            modelG.initialize(opt)
+            modelD.initialize(opt)
     elif opt.model == 'vid2vidRCNN':
         from .vid2vidRCNN_model_G import Vid2VidRCNNModelG
         modelG = Vid2VidRCNNModelG()
