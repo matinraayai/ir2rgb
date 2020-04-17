@@ -14,9 +14,10 @@ import util.util as util
 from .base_model import BaseModel
 from . import networks
 
-class Vid2VidModelG(BaseModel):
+class Vid2VidRCNNModelG(BaseModel):
+    
     def name(self):
-        return 'Vid2VidModelG'
+        return 'Vid2VidRCNNModelG'
 
     def initialize(self, opt):
         BaseModel.initialize(self, opt)

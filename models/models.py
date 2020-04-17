@@ -63,7 +63,7 @@ class myModel(nn.Module):
             tensors = tensors[remove_size:]
         return tensors
 
-def create_model(opt):    
+def create_model(opt): 
     print("=====================Creating Model=================================")
     print("Options for this model:")
     print(opt.model)
@@ -73,6 +73,12 @@ def create_model(opt):
         if opt.isTrain:
             from .vid2vid_model_D import Vid2VidModelD
             modelD = Vid2VidModelD()    
+    elif opt.model == 'vid2vidRCNN':
+        from .vid2vidRCNN_model_G import Vid2VidRCNNModelG
+        modelG = Vid2VidRCNNModelG()
+        if opt.isTrain:
+            from .vid2vid_model_D import Vid2VidModelD
+            modelD = Vid2VidModelD()
     else:
         raise ValueError("Model [%s] not recognized." % opt.model)
 
