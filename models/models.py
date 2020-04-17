@@ -63,38 +63,48 @@ class myModel(nn.Module):
             tensors = tensors[remove_size:]
         return tensors
 
-def create_model(opt): 
-    print("=====================Creating Model=================================")
-    print("Options for this model:")
-    print(opt.model)
+"""
+Initializes the networks in the GAN for both training and testing using the 
+commandline parameters passd to the script. Converts the model to float16 if 
+specified in the options.
+@param opt Options of the script. See the options folder.
+@return (Generator, Discriminator, Flow Network) if opt.train is True, else 
+only the Generator network.
+"""
+def create_model(opt):
+    print("======================Creating Models=================================")
+    print("Name of the model: {}".format(opt.model))
     if opt.model == 'vid2vid':
         from .vid2vid_model_G import Vid2VidModelG
-        modelG = Vid2VidModelG()    
-        if opt.isTrain:
-            from .vid2vid_model_D import Vid2VidModelD
-            modelD = Vid2VidModelD()    
-    elif opt.model == 'vid2vidRCNN':
-        from .vid2vidRCNN_model_G import Vid2VidRCNNModelG
-        modelG = Vid2VidRCNNModelG()
+        modelG = Vid2VidModelG()
+        modelG.initialize(opt)
         if opt.isTrain:
             from .vid2vid_model_D import Vid2VidModelD
             modelD = Vid2VidModelD()
+            modelG.initialize(opt)
+    elif opt.model == 'vid2vidRCNN':
+        from .vid2vidRCNN_model_G import Vid2VidRCNNModelG
+        modelG = Vid2VidRCNNModelG()
+        modelG.initialize(opt)
+        if opt.isTrain:
+            from .vid2vid_model_D import Vid2VidModelD
+            modelD = Vid2VidModelD()
+            modelD.initialize(opt)
     else:
         raise ValueError("Model [%s] not recognized." % opt.model)
 
     if opt.isTrain:
         from .flownet import FlowNet
         flowNet = FlowNet()
+        flowNet.initialize(opt)
     
-    modelG.initialize(opt)
-    if opt.isTrain:
-        modelD.initialize(opt)
-        flowNet.initialize(opt)        
-        if not opt.fp16:
-            modelG, modelD, flownet = wrap_model(opt, modelG, modelD, flowNet)
-        return [modelG, modelD, flowNet]
+    if opt.isTrain and not opt.fp16:
+        outputs = wrap_model(opt, modelG, modelD, flowNet)
     else:
-        return modelG
+        outputs = modelG
+    print("======================Models Created==================================")
+    return outputs
+
 
 def create_optimizer(opt, models):
     modelG, modelD, flowNet = models
