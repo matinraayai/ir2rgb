@@ -4,6 +4,9 @@ from data.base_data_loader import BaseDataLoader
 
 def CreateDataset(opt):
     dataset = None
+    if opt.dataset_mode == 'temporal_rcnn':
+        from data.temporal_rcnn_dataset import TemporalRCNNDataset
+        dataset = TemporalRCNNDataset()
     if opt.dataset_mode == 'temporal':
         from data.temporal_dataset import TemporalDataset
         dataset = TemporalDataset()   

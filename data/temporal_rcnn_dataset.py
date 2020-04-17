@@ -20,7 +20,7 @@ class TemporalRCNNDataset(BaseDataset):
 
         self.A_paths = sorted(make_grouped_dataset(self.dir_A))
         self.B_paths = sorted(make_grouped_dataset(self.dir_B))
-        self.B_paths = sorted(make_grouped_dataset(self.dir_C))
+        self.C_paths = sorted(make_grouped_dataset(self.dir_C))
         check_path_valid(self.A_paths, self.B_paths)
         check_path_valid(self.A_paths, self.C_paths)
         if opt.use_instance:                
@@ -80,4 +80,4 @@ class TemporalRCNNDataset(BaseDataset):
         return len(self.A_paths)
 
     def name(self):
-        return 'TemporalDataset'
+        return 'TemporalRCNNDataset'
