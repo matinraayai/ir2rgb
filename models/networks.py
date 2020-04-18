@@ -805,11 +805,20 @@ class RCNNLoss(nn.Module):
         self.model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
 
     def forward(self, fake_B, annotation):
-        # TODO: get the loss explicitly
-        prediction = self.model(*input)
-        loss = 0
+        fake_B_reshaped = fake_B.reshape(fake_B.shape[1], fake_B.shape[2], fake_B.shape[3])
+        labels = [2] + [1] * (len(annotation) - 1)
+        labels = torch.tensor(labels, device=annotation.device, dtype=torch.int64)
 
-        return loss
+        target = {}
+        target["boxes"] = annotation.reshape(annotation.shape[0], annotation.shape[3])
+        target["labels"] = labels
+        images = [fake_B_reshaped]
+        target = [{k: v.to('cuda') for k, v in target.items()}] 
+        loss_dict = self.model(images, target)
+        losses = sum(loss for loss in loss_dict.values())
+
+
+        return losses
 
 
 class CrossEntropyLoss(nn.Module):
