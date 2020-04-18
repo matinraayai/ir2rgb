@@ -803,6 +803,8 @@ class RCNNLoss(nn.Module):
         in_features = self.model.roi_heads.box_predictor.cls_score.in_features
         # replace the pre-trained head with a new one
         self.model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+        self.model.load_state_dict(torch.load("checkpoints/RCNN/rcnn_checkpoint_epoch_40.pt"))
+        print("Finished loading the RCNN")
 
     def forward(self, fake_B, annotation):
         fake_B_reshaped = fake_B.reshape(fake_B.shape[1], fake_B.shape[2], fake_B.shape[3])
@@ -813,7 +815,7 @@ class RCNNLoss(nn.Module):
         target["boxes"] = annotation.reshape(annotation.shape[0], annotation.shape[3])
         target["labels"] = labels
         images = [fake_B_reshaped]
-        target = [{k: v.to('cuda') for k, v in target.items()}] 
+        target = [{k: v.to(annotation.device) for k, v in target.items()}] 
         loss_dict = self.model(images, target)
         losses = sum(loss for loss in loss_dict.values())
 
