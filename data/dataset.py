@@ -11,62 +11,65 @@ import torchvision.transforms as transforms
 import numpy as np
 import random
 from abc import abstractmethod
+from typing import Iterable
+from argparse import Namespace
 
 __all__ = ['create_dataloader']
 
 
-class BaseDataset(data.Dataset):
+class Vid2VidBaseDataset(data.Dataset):
     def __init__(self, opt):
-        super(BaseDataset, self).__init__()
+        super(Vid2VidBaseDataset, self).__init__()
         self.opt = opt
+        self.root = opt.dataroot
+        self.dir_A = os.path.join(opt.dataroot, opt.phase + '_A')
+        self.dir_B = os.path.join(opt.dataroot, opt.phase + '_B')
+        self.A_is_label = self.opt.label_nc != 0
+
+        self.A_paths = sorted(make_grouped_dataset(self.dir_A))
+        self.B_paths = sorted(make_grouped_dataset(self.dir_B))
+
+        self.n_frames_total = self.opt.n_frames_total
+        self.seq_len_max = max([len(A) for A in self.A_paths])
+
+    @abstractmethod
+    def __getitem__(self, item):
+        return
 
     @abstractmethod
     def __str__(self):
         return 'Base Dataset'
 
     def update_training_batch(self, ratio):
-        # update the training sequence length to be longer
+        """
+        Updates the total number of frames in training sequence length to be longer.
+        :param ratio: the power of 2 to increase the number of total frames
+        :return: None
+        """
         seq_len_max = min(128, self.seq_len_max) - (self.opt.n_frames_G - 1)
         if self.n_frames_total < seq_len_max:
             self.n_frames_total = min(seq_len_max, self.opt.n_frames_total * (2 ** ratio))
-            print('--------- Updating training sequence length to %d ---------' % self.n_frames_total)
-
-
-    def update_frame_idx(self, A_paths, index):
-        if self.opt.isTrain:
-            if self.opt.dataset_mode == 'pose':
-                seq_idx = np.random.choice(len(A_paths), p=self.folder_prob)  # randomly pick sequence to train
-                self.frame_idx = index
-            else:
-                seq_idx = index % self.n_of_seqs
-            return None, None, None, seq_idx
-        else:
-            self.change_seq = self.frame_idx >= self.frames_count[self.seq_idx]
-            if self.change_seq:
-                self.seq_idx += 1
-                self.frame_idx = 0
-                self.A, self.B, self.I = None, None, None
-            return self.A, self.B, self.I, self.seq_idx
+            print(f'Updating training sequence length to {self.n_frames_total}.')
 
     def init_data_params(self, data, n_gpus, tG):
-        opt = self.opt
-        _, n_frames_total, self.height, self.width = data[
-            'B'].size()  # n_frames_total = n_frames_load * n_loadings + tG - 1
-        n_frames_total = n_frames_total // opt.output_nc
-        n_frames_load = opt.max_frames_per_gpu * n_gpus  # number of total frames loaded into GPU at a time for each batch
+        # n_frames_total = n_frames_load * n_loadings + tG - 1
+        _, n_frames_total, self.height, self.width = data['B'].size()
+        n_frames_total = n_frames_total // self.opt.output_nc
+        n_frames_load = self.opt.max_frames_per_gpu * n_gpus  # number of total frames loaded into GPU at a time for each batch
         n_frames_load = min(n_frames_load, n_frames_total - tG + 1)
         self.t_len = n_frames_load + tG - 1  # number of loaded frames plus previous frames
         return n_frames_total - self.t_len + 1, n_frames_load, self.t_len
 
     def init_data(self, t_scales):
-        fake_B_last = None  # the last generated frame from previous training batch (which becomes input to the next batch)
+        # the last generated frame from previous training batch (which becomes input to the next batch)
+        fake_b_last = None
         real_B_all, fake_B_all, flow_ref_all, conf_ref_all = None, None, None, None  # all real/generated frames so far
         if self.opt.sparse_D:
             real_B_all, fake_B_all, flow_ref_all, conf_ref_all = [None] * t_scales, [None] * t_scales, [
                 None] * t_scales, [None] * t_scales
 
         frames_all = real_B_all, fake_B_all, flow_ref_all, conf_ref_all
-        return fake_B_last, frames_all
+        return fake_b_last, frames_all
 
     def prepare_data(self, data, i, input_nc, output_nc):
         t_len, height, width = self.t_len, self.height, self.width
@@ -81,25 +84,31 @@ class BaseDataset(data.Dataset):
     def __len__(self):
         return
 
+
 def make_power_2(n, base=32.0):
     return int(round(n / base) * base)
 
 
-def get_img_params(opt, size):
+def get_img_params(opt: Namespace, size: Iterable):
     w, h = size
     new_h, new_w = h, w
-    if 'resize' in opt.resize_or_crop:  # resize image to be loadSize x loadSize
+    # resize image to be loadSize x loadSize
+    if 'resize' in opt.resize_or_crop:
         new_h = new_w = opt.loadSize
-    elif 'scaleWidth' in opt.resize_or_crop:  # scale image width to be loadSize
+    # scale image width to be loadSize
+    elif 'scaleWidth' in opt.resize_or_crop:
         new_w = opt.loadSize
         new_h = opt.loadSize * h // w
-    elif 'scaleHeight' in opt.resize_or_crop:  # scale image height to be loadSize
+    # scale image height to be loadSize:
+    elif 'scaleHeight' in opt.resize_or_crop:
         new_h = opt.loadSize
         new_w = opt.loadSize * w // h
-    elif 'randomScaleWidth' in opt.resize_or_crop:  # randomly scale image width to be somewhere between loadSize and fineSize
+    # randomly scale image width to be somewhere between loadSize and fineSize
+    elif 'randomScaleWidth' in opt.resize_or_crop:
         new_w = random.randint(opt.fineSize, opt.loadSize + 1)
         new_h = new_w * h // w
-    elif 'randomScaleHeight' in opt.resize_or_crop:  # randomly scale image height to be somewhere between loadSize and fineSize
+    # randomly scale image height to be somewhere between loadSize and fineSize
+    elif 'randomScaleHeight' in opt.resize_or_crop:
         new_h = random.randint(opt.fineSize, opt.loadSize + 1)
         new_w = new_h * w // h
     new_w = int(round(new_w / 4)) * 4
@@ -133,18 +142,18 @@ def get_img_params(opt, size):
 
 def get_transform(opt, params, method=Image.BICUBIC, normalize=True, toTensor=True):
     transform_list = []
-    ### resize input image
+    # resize input image
     if 'resize' in opt.resize_or_crop:
         osize = [opt.loadSize, opt.loadSize]
         transform_list.append(transforms.Scale(osize, method))
     else:
         transform_list.append(transforms.Lambda(lambda img: __scale_image(img, params['new_size'], method)))
 
-    ### crop patches from image
+    # crop patches from image
     if 'crop' in opt.resize_or_crop or 'scaledCrop' in opt.resize_or_crop:
         transform_list.append(transforms.Lambda(lambda img: __crop(img, params['crop_size'], params['crop_pos'])))
 
-        ### random flip
+    # random flip
     if opt.isTrain and not opt.no_flip:
         transform_list.append(transforms.Lambda(lambda img: __flip(img, params['flip'])))
 
@@ -172,7 +181,7 @@ def __crop(img, size, pos):
     ow, oh = img.size
     tw, th = size
     x1, y1 = pos
-    if (ow > tw or oh > th):
+    if ow > tw or oh > th:
         return img.crop((x1, y1, min(ow, x1 + tw), min(oh, y1 + th)))
     return img
 
@@ -223,10 +232,9 @@ def concat_frame(A, Ai, nF):
     return A
 
 
-class TemporalDataset(BaseDataset):
+class TemporalDatasetVid2Vid(Vid2VidBaseDataset):
     def __init__(self, opt):
-        super(BaseDataset, self).__init__()
-        self.root = opt.dataroot
+        super(Vid2VidBaseDataset, self).__init__()
         self.dir_A = os.path.join(opt.dataroot, opt.phase + '_A')
         self.dir_B = os.path.join(opt.dataroot, opt.phase + '_B')
         self.A_is_label = self.opt.label_nc != 0
@@ -290,11 +298,9 @@ class TemporalDataset(BaseDataset):
         return 'TemporalDataset'
 
 
-class TemporalRCNNDataset(BaseDataset):
+class TemporalRCNNDatasetVid2Vid(Vid2VidBaseDataset):
     def __init__(self, opt):
-        super(BaseDataset, self).__init__()
-        self.opt = opt
-        self.root = opt.dataroot
+        super(Vid2VidBaseDataset, self).__init__()
         self.dir_A = os.path.join(opt.dataroot, opt.phase + '_A')
         self.dir_B = os.path.join(opt.dataroot, opt.phase + '_B')
         self.dir_C = os.path.join(opt.dataroot, opt.phase + '_C')
@@ -365,10 +371,9 @@ class TemporalRCNNDataset(BaseDataset):
         return 'TemporalRCNNDataset'
 
 
-class TestDataset(BaseDataset):
+class TestDatasetVid2Vid(Vid2VidBaseDataset):
     def __init__(self, opt):
-        super(BaseDataset, self).__init__()
-        self.root = opt.dataroot
+        super(Vid2VidBaseDataset, self).__init__()
         self.dir_A = os.path.join(opt.dataroot, opt.phase + '_A')
         self.dir_B = os.path.join(opt.dataroot, opt.phase + '_B')
         self.use_real = opt.use_real_img
@@ -431,6 +436,18 @@ class TestDataset(BaseDataset):
         return_list = {'A': self.A, 'B': self.B, 'inst': self.I, 'A_path': A_path, 'change_seq': self.change_seq}
         return return_list
 
+    def update_frame_idx(self, A_paths, index):
+        if self.opt.isTrain:
+            seq_idx = index % self.n_of_seqs
+            return None, None, None, seq_idx
+        else:
+            self.change_seq = self.frame_idx >= self.frames_count[self.seq_idx]
+            if self.change_seq:
+                self.seq_idx += 1
+                self.frame_idx = 0
+                self.A, self.B, self.I = None, None, None
+            return self.A, self.B, self.I, self.seq_idx
+
     def get_image(self, A_path, transform_scaleA, is_label=False):
         A_img = Image.open(A_path)
         A_scaled = transform_scaleA(A_img)
@@ -473,8 +490,6 @@ def read_bb_file(bb_file_path, x_dim, y_dim):
 
 class RCNNDataset(torch.utils.data.dataset.Dataset):
     def __init__(self, opt):
-        self.opt = opt
-        self.root = opt.dataroot
         # Path to the RGB images.
         self.dir_B = os.path.join(opt.dataroot, opt.phase + '_B')
         self.B_paths = sorted(make_grouped_dataset(self.dir_B))[0]
@@ -507,18 +522,18 @@ class RCNNDataset(torch.utils.data.dataset.Dataset):
         return len(self.B_paths)
 
 
-def create_dataloader(opt) -> data.DataLoader:
+def create_dataloader(opt: Namespace) -> data.DataLoader:
     if opt.dataset_mode == 'temporal':
-        dataset = TemporalDataset(opt)
+        dataset = TemporalDatasetVid2Vid(opt)
     elif opt.dataset_mode == 'test':
-        dataset = TestDataset(opt)
+        dataset = TestDatasetVid2Vid(opt)
     elif opt.dataset_mode == 'temporal_rcnn':
-        dataset = TemporalRCNNDataset(opt)
+        dataset = TemporalRCNNDatasetVid2Vid(opt)
     else:
         raise NotImplementedError("Dataset [{:s}] is not recognized.".format(opt.dataset_mode))
     data_loader = data.DataLoader(dataset, batch_size=opt.batchSize,
                                   shuffle=not opt.serial_batches,
-                                  num_workers=int(opt.nThreads))
+                                  num_workers=opt.nThreads)
 
     print("dataset [{:s}}] was created.".format(dataset))
     return data_loader
