@@ -48,7 +48,7 @@ def train():
     # Training start:==================================================================================================#
     for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
         epoch_start_time = time.time()
-        for idx, data in enumerate(dataset, start=epoch_iter):
+        for idx, data in enumerate(data_loader, start=epoch_iter):
             if total_steps % print_freq == 0:
                 iter_start_time = time.time()
             total_steps += opt.batch_size
@@ -124,7 +124,8 @@ def train():
                 for s in range(t_scales_act):
                     loss_backward(opt, loss_D_T[s], optimizer_D_T[s])
                 # the first generated image in this sequence
-                if i == 0: fake_B_first = fake_B[0, 0]
+                if i == 0:
+                    fake_B_first = fake_B[0, 0]
 
             if opt.debug:
                 call(["nvidia-smi", "--format=csv", "--query-gpu=memory.used,memory.free"])

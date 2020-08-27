@@ -22,7 +22,7 @@ class FlowNet(Model, ABC):
 
     def forward(self, input_A, input_B, dummy_bs=0):        
         with torch.no_grad():            
-            if input_A.get_device() == self.gpu_ids[0]:
+            if input_A.get_device() == self.opt.gpu_ids[0]:
                 input_A, input_B = input_A[dummy_bs:], input_B[dummy_bs:]
                 if input_A.size(0) == 0:
                     b, n, c, h, w = input_A.size()

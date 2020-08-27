@@ -57,7 +57,6 @@ class Vid2VidBaseDataset(data.Dataset):
 
     def init_data_params(self, data, n_gpus, tG):
         # n_frames_total = n_frames_load * n_loadings + tG - 1
-        print(data['B'].size())
         _, n_frames_total, self.height, self.width = data['B'].size()
         n_frames_total = n_frames_total // self.opt.output_nc
         n_frames_load = self.opt.max_frames_per_gpu * n_gpus  # number of total frames loaded into GPU at a time for each batch
