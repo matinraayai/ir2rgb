@@ -1,0 +1,7 @@
+torch~=1.6.0
+torchvision~=0.7.0
+apex
+numpy~=1.19.1
+pillow~=7.2.0
+setuptools~=49.6.0
+matplotlib~=3.3.1

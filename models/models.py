@@ -4,25 +4,27 @@
 (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
 import os
-import fractions
 import torch
 import torch.nn as nn
 import numpy as np
+from math import gcd
+
 
 def lcm(a, b):
-    return abs(a * b) / fractions.gcd(a, b) if a and b else 0
+    return abs(a * b) / gcd(a, b) if a and b else 0
+
 
 def wrap_model(opt, modelG, modelD, flowNet):
-    if opt.n_gpus_gen == len(opt.gpu_ids):
+    if opt.gen_gpus == len(opt.gpu_ids):
         modelG = myModel(opt, modelG)
         modelD = myModel(opt, modelD)
         flowNet = myModel(opt, flowNet)
     else:
-        if opt.batchSize == 1:
-            gpu_split_id = opt.n_gpus_gen + 1
+        if opt.batch_size == 1:
+            gpu_split_id = opt.gen_gpus + 1
             modelG = nn.DataParallel(modelG, device_ids=opt.gpu_ids[0:1])                
         else:
-            gpu_split_id = opt.n_gpus_gen
+            gpu_split_id = opt.gen_gpus
             modelG = nn.DataParallel(modelG, device_ids=opt.gpu_ids[:gpu_split_id])
         modelD = nn.DataParallel(modelD, device_ids=[opt.gpu_ids[0]] + opt.gpu_ids[gpu_split_id:])
         flowNet = nn.DataParallel(flowNet, device_ids=[opt.gpu_ids[0]] + opt.gpu_ids[gpu_split_id:])
@@ -34,8 +36,8 @@ class myModel(nn.Module):
         self.opt = opt
         self.module = model
         self.model = nn.DataParallel(model, device_ids=opt.gpu_ids)
-        self.bs_per_gpu = int(np.ceil(float(opt.batchSize) / len(opt.gpu_ids))) # batch size for each GPU
-        self.pad_bs = self.bs_per_gpu * len(opt.gpu_ids) - opt.batchSize           
+        self.bs_per_gpu = int(np.ceil(float(opt.batch_size) / len(opt.gpu_ids))) # batch size for each GPU
+        self.pad_bs = self.bs_per_gpu * len(opt.gpu_ids) - opt.batch_size
 
     def forward(self, *inputs, **kwargs):
         inputs = self.add_dummy_to_tensor(inputs, self.pad_bs)
@@ -63,42 +65,40 @@ class myModel(nn.Module):
             tensors = tensors[remove_size:]
         return tensors
 
-"""
-Initializes the networks in the GAN for both training and testing using the 
-commandline parameters passd to the script. Converts the model to float16 if 
-specified in the options.
-@param opt Options of the script. See the options folder.
-@return (Generator, Discriminator, Flow Network) if opt.train is True, else 
-only the Generator network.
-"""
+
 def create_model(opt):
+    """
+    Initializes the networks in the GAN for both training and testing using the
+    commandline parameters passed to the script. Converts the model to float16 if
+    specified in the options.
+    @param opt: Options of the script. See the options folder.
+    @return (Generator, Discriminator, Flow Network) if opt.train is True, else
+    only the Generator network.
+    """
     print("======================Creating Models=================================")
-    print("Name of the model: {}".format(opt.model))
+    if not opt.debug:
+        torch.backends.cudnn.benchmark = True
+    print(f"Name of the model: {opt.model}")
     if opt.model == 'vid2vid':
         from .vid2vid_model_G import Vid2VidModelG
-        modelG = Vid2VidModelG()
-        modelG.initialize(opt)
-        if opt.isTrain:
+        modelG = Vid2VidModelG(opt)
+        if opt.is_train:
             from .vid2vid_model_D import Vid2VidModelD
-            modelD = Vid2VidModelD()
-            modelD.initialize(opt)
+            modelD = Vid2VidModelD(opt)
     elif opt.model == 'vid2vidRCNN':
         from .vid2vidRCNN_model_G import Vid2VidRCNNModelG
-        modelG = Vid2VidRCNNModelG()
-        modelG.initialize(opt)
-        if opt.isTrain:
+        modelG = Vid2VidRCNNModelG(opt)
+        if opt.is_train:
             from .vid2vidRCNN_model_D import Vid2VidRCNNModelD
-            modelD = Vid2VidRCNNModelD()
-            modelD.initialize(opt)
+            modelD = Vid2VidRCNNModelD(opt)
     else:
         raise ValueError("Model [%s] not recognized." % opt.model)
 
-    if opt.isTrain:
+    if opt.is_train:
         from .flownet import FlowNet
-        flowNet = FlowNet()
-        flowNet.initialize(opt)
+        flowNet = FlowNet(opt)
     
-    if opt.isTrain and not opt.fp16:
+    if opt.is_train and not opt.fp16:
         outputs = wrap_model(opt, modelG, modelD, flowNet)
     else:
         outputs = modelG
@@ -124,36 +124,37 @@ def create_optimizer(opt, models):
             optimizer_D_T.append(getattr(modelD.module, 'optimizer_D_T'+str(s)))
     return modelG, modelD, flowNet, optimizer_G, optimizer_D, optimizer_D_T
 
-def init_params(opt, modelG, modelD, data_loader):
+
+def init_params(opt, model_G, model_D, data_loader):
     iter_path = os.path.join(opt.checkpoints_dir, opt.name, 'iter.txt')
     start_epoch, epoch_iter = 1, 0
-    ### if continue training, recover previous states
+    # if continue training, recover previous states
     if opt.continue_train:        
         if os.path.exists(iter_path):
-            start_epoch, epoch_iter = np.loadtxt(iter_path , delimiter=',', dtype=int)        
+            start_epoch, epoch_iter = np.loadtxt(iter_path, delimiter=',', dtype=int)
         print('Resuming from epoch %d at iteration %d' % (start_epoch, epoch_iter))   
         if start_epoch > opt.niter:
-            modelG.module.update_learning_rate(start_epoch-1, 'G')
-            modelD.module.update_learning_rate(start_epoch-1, 'D')
+            model_G.module.update_learning_rate(start_epoch - 1, 'G')
+            model_D.module.update_learning_rate(start_epoch - 1, 'D')
         if (opt.n_scales_spatial > 1) and (opt.niter_fix_global != 0) and (start_epoch > opt.niter_fix_global):
-            modelG.module.update_fixed_params()
+            model_G.module.update_fixed_params()
         if start_epoch > opt.niter_step:
             data_loader.dataset.update_training_batch((start_epoch-1)//opt.niter_step)
-            modelG.module.update_training_batch((start_epoch-1)//opt.niter_step)    
+            model_G.module.update_training_batch((start_epoch - 1) // opt.niter_step)
 
-    n_gpus = opt.n_gpus_gen if opt.batchSize == 1 else 1   # number of gpus used for generator for each batch
-    tG, tD = opt.n_frames_G, opt.n_frames_D
+    opt.n_gpus = opt.gen_gpus if opt.batch_size == 1 else 1   # number of gpus used for generator for each batch
+    tG, tD = opt.n_input_gen_frames, opt.n_frames_D
     tDB = tD * opt.output_nc        
     s_scales = opt.n_scales_spatial
     t_scales = opt.n_scales_temporal
     input_nc = 1 if opt.label_nc != 0 else opt.input_nc
     output_nc = opt.output_nc         
 
-    print_freq = lcm(opt.print_freq, opt.batchSize)
-    total_steps = (start_epoch-1) * len(data_loader) + epoch_iter
+    print_freq = lcm(opt.print_freq, opt.batch_size)
+    total_steps = (start_epoch - 1) * len(data_loader) + epoch_iter
     total_steps = total_steps // print_freq * print_freq  
 
-    return n_gpus, tG, tD, tDB, s_scales, t_scales, input_nc, output_nc, start_epoch, epoch_iter, print_freq, total_steps, iter_path
+    return opt.n_gpus, tG, tD, tDB, s_scales, t_scales, input_nc, output_nc, start_epoch, epoch_iter, print_freq, total_steps, iter_path
 
 def save_models(opt, epoch, epoch_iter, total_steps, visualizer, iter_path, modelG, modelD, end_of_epoch=False):
     if not end_of_epoch:
@@ -169,7 +170,7 @@ def save_models(opt, epoch, epoch_iter, total_steps, visualizer, iter_path, mode
             modelD.module.save('latest')
             modelG.module.save(epoch)
             modelD.module.save(epoch)
-            np.savetxt(iter_path, (epoch+1, 0), delimiter=',', fmt='%d')
+            np.savetxt(iter_path, (epoch + 1, 0), delimiter=',', fmt='%d')
 
 def update_models(opt, epoch, modelG, modelD, data_loader):
     ### linearly decay learning rate after certain iterations

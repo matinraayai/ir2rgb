@@ -1,26 +1,24 @@
-import numpy as np
+from abc import ABC
 import torch
-import sys
-from .base_model import BaseModel
+from .base_model import Model
+from .flownet2_pytorch import models as flownet2_models
+from .flownet2_pytorch.utils import tools as flownet2_tools
+from .flownet2_pytorch.networks.resample2d_package.resample2d import Resample2d
 
-class FlowNet(BaseModel):
-    def name(self):
-        return 'FlowNet'
 
-    def initialize(self, opt):
-        BaseModel.initialize(self, opt)
-
-        # flownet 2           
-        from .flownet2_pytorch import models as flownet2_models
-        from .flownet2_pytorch.utils import tools as flownet2_tools
-        from .flownet2_pytorch.networks.resample2d_package.resample2d import Resample2d
-        
-        self.flowNet = flownet2_tools.module_to_dict(flownet2_models)['FlowNet2'](fp16=opt.fp16).cuda(self.gpu_ids[0])        
+class FlowNet(Model, ABC):
+    def __init__(self, opt):
+        super().__init__(opt)
+        # flownet 2
+        self.flowNet = flownet2_tools.module_to_dict(flownet2_models)['FlowNet2'](fp16=opt.fp16).cuda(self.opt.gpu_ids[0])
         checkpoint = torch.load('models/flownet2_pytorch/FlowNet2_checkpoint.pth.tar')
         self.flowNet.load_state_dict(checkpoint['state_dict'])
-        self.flowNet.eval() 
+        self.flowNet.eval()
         self.resample = Resample2d()
         self.downsample = torch.nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
+
+    def __str__(self):
+        return 'FlowNet'
 
     def forward(self, input_A, input_B, dummy_bs=0):        
         with torch.no_grad():            
@@ -59,4 +57,7 @@ class FlowNet(BaseModel):
         return flow1.detach(), conf.detach()
 
     def norm(self, t):
-        return torch.sum(t*t, dim=1, keepdim=True)   
+        return torch.sum(t*t, dim=1, keepdim=True)
+
+    def save(self, label):
+        pass

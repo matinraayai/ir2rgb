@@ -10,7 +10,7 @@ import warnings
 import torch
 
 from options.train_options import TrainOptions
-from data.data_loader import CreateDataLoader
+from data.dataset import create_dataloader
 from models.models import create_model, create_optimizer, init_params,\
                           save_models, update_models
 import util.util as util
@@ -55,8 +55,8 @@ def train():
         for idx, data in enumerate(dataset, start=epoch_iter):
             if total_steps % print_freq == 0:
                 iter_start_time = time.time()
-            total_steps += opt.batchSize
-            epoch_iter += opt.batchSize
+            total_steps += opt.batch_size
+            epoch_iter += opt.batch_size
 
 	    # whether to collect output images
             save_fake = total_steps % opt.display_freq == 0
@@ -159,7 +159,7 @@ def train():
             # Save latest model:===============================================#
             save_models(opt, epoch, epoch_iter, total_steps, visualizer,
                         iter_path, modelG, modelD)
-            if epoch_iter > dataset_size - opt.batchSize:
+            if epoch_iter > dataset_size - opt.batch_size:
                 epoch_iter = 0
                 break
 

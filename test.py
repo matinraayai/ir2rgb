@@ -6,7 +6,7 @@ import numpy as np
 from collections import OrderedDict
 from torch.autograd import Variable
 from options.test_options import TestOptions
-from data.data_loader import CreateDataLoader
+from data.dataset import create_dataloader
 from models.models import create_model
 import util.util as util
 from util.visualizer import Visualizer
@@ -15,15 +15,15 @@ from util import html
 
 # TODO: See if using multiple threads for test code is now possible in torch.
 opt = TestOptions().parse(save=False)
-opt.nThreads = 1   # test code only supports nThreads = 1
-opt.batchSize = 1  # test code only supports batchSize = 1
+opt.dataloader_threads = 1   # test code only supports nThreads = 1
+opt.batch_size = 1  # test code only supports batchSize = 1
 opt.serial_batches = True  # no shuffle
-opt.no_flip = True	# no flip
+opt.no_flip = True	 # no flip
 if opt.dataset_mode == 'temporal':
 	opt.dataset_mode = 'test'
 
-data_loader = CreateDataLoader(opt)
-dataset = data_loader.load_data()
+data_loader = create_dataloader(opt)
+# dataset = data_loader.load_data()
 model = create_model(opt)
 visualizer = Visualizer(opt)
 input_nc = 1 if opt.label_nc != 0 else opt.input_nc

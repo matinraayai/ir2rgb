@@ -6,7 +6,7 @@ class TestOptions(CommonOptions):
     Options used for testing.
     """
     def __init__(self):
-        super(CommonOptions, self).__init__()
+        super(TestOptions, self).__init__()
         self.is_train = False
 
     def add_arguments(self):

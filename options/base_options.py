@@ -11,8 +11,18 @@ class CommonOptions:
     def __init__(self):
         self.parser = argparse.ArgumentParser()
         self.opt = None
+        self.is_train = None
 
     def add_arguments(self):
+        # Experiment parameters ========================================================================================
+        self.parser.add_argument('--name', type=str,
+                                 default='experiment_name',
+                                 help='name of the experiment used for storing samples and models')
+        self.parser.add_argument('--checkpoints_dir', type=str,
+                                 default='./checkpoints', help='path to save model checkpoints')
+        self.parser.add_argument('--debug', action='store_true', help='if specified, use small dataset for debug')
+        self.parser.add_argument('--fp16', action='store_true', default=False, help='train with AMP')
+        self.parser.add_argument('--local_rank', type=int, default=0, help='local rank for distributed training')
         # Dataset arguments ============================================================================================
         self.parser.add_argument('--data-root', type=str, default='kaist-rgbt/images/')
         self.parser.add_argument('--batch-size', type=int, default=1, help='input batch size')
@@ -56,21 +66,27 @@ class CommonOptions:
         self.parser.add_argument('--gen-network', type=str, default='composite',
                                  help='selects model to use for the generator network')
         self.parser.add_argument('--first-layer-gen-filters', type=int, default=128,
-                                 help='# of filters in first conv layer of the generator network')
+                                 help='# of filters in the first conv layer of the generator network')
         self.parser.add_argument('--gen-blocks', type=int, default=9,
                                  help='number of residual blocks in the generator network')
         self.parser.add_argument('--gen-ds-layers', type=int, default=3,
                                  help='number of down-sampling layers in the generator network')
-        # Discriminator Network Architecture ===========================================================================
-        self.parser.add_argument('--first-layer-dis-filters', type=int, default=64,
-                                 help='number of filters in first conv layer of the discriminator network')
-        self.parser.add_argument('--name', type=str, 
-                                 default='experiment_name', 
-                                 help='name of the experiment for storing samples and models')
-
-        self.parser.add_argument('--checkpoints_dir', type=str, 
-                                 default='./checkpoints', help='models are saved here')
-
+        # Generator Network Temporal Arguments =========================================================================
+        self.parser.add_argument('--n-input-gen-frames', type=int, default=3,
+                                 help='number of input frames to feed into generator, '
+                                      'i.e., n_input_gen_frames - 1 is the number of frames we look into past')
+        self.parser.add_argument('--n_scales_spatial', type=int, default=1,
+                                 help='number of spatial scales in the coarse-to-fine generator')
+        self.parser.add_argument('--no_first_img', action='store_true',
+                                 help='if specified, generator also tries to synthesize the first image')
+        self.parser.add_argument('--use_single_G', action='store_true',
+                                 help='if specified, use single frame generator for the first frame')
+        self.parser.add_argument('--fg', action='store_true',
+                                 help='if specified, use foreground-background seperation model')
+        self.parser.add_argument('--fg_labels', type=str, default='26',
+                                 help='label indices for foreground objects')
+        self.parser.add_argument('--no_flow', action='store_true',
+                                 help='if specified, does not use flow warping and directly synthesize frames')
         # Visualization Options ========================================================================================
         self.parser.add_argument('--display-winsize', type=int, default=512,
                                  help='display window size')
@@ -92,26 +108,9 @@ class CommonOptions:
         self.parser.add_argument('--n_downsample_E', type=int, default=3, help='number of downsampling layers in netE')
 
         # for cascaded resnet        
-        self.parser.add_argument('--n_blocks_local', type=int, default=3, help='number of resnet blocks in outmost multiscale resnet')        
-        self.parser.add_argument('--n_local_enhancers', type=int, default=1, help='number of cascaded layers')        
-
-        # temporal
-        self.parser.add_argument('--n_frames_G', type=int, default=3, help='number of input frames to feed into generator, i.e., n_frames_G-1 is the number of frames we look into past')
-        self.parser.add_argument('--n_scales_spatial', type=int, default=1, help='number of spatial scales in the coarse-to-fine generator')        
-        self.parser.add_argument('--no_first_img', action='store_true', help='if specified, generator also tries to synthesize first image')        
-        self.parser.add_argument('--use_single_G', action='store_true', help='if specified, use single frame generator for the first frame')
-        self.parser.add_argument('--fg', action='store_true', help='if specified, use foreground-background seperation model')
-        self.parser.add_argument('--fg_labels', type=str, default='26', help='label indices for foreground objects')
-        self.parser.add_argument('--no_flow', action='store_true', help='if specified, do not use flow warping and directly synthesize frames')
-
-        # miscellaneous                
-
-        self.parser.add_argument('--debug', action='store_true', 
-                                 help='if specified, use small dataset for debug')
-        self.parser.add_argument('--fp16', action='store_true', 
-                                 default=False, help='train with AMP')
-        self.parser.add_argument('--local_rank', type=int, 
-                                 default=0, help='local rank for distributed training')
+        self.parser.add_argument('--n_blocks_local', type=int, default=3,
+                                 help='number of resnet blocks in outmost multiscale resnet')
+        self.parser.add_argument('--n_local_enhancers', type=int, default=1, help='number of cascaded layers')
 
     def parse_str(self, ids):
         str_ids = ids.split(',')
@@ -126,7 +125,7 @@ class CommonOptions:
         if not self.opt:
             self.add_arguments()
             self.opt = self.parser.parse_args()
-        self.opt.isTrain = self.isTrain   # train or test
+        self.opt.is_train = self.is_train   # train or test
         
         self.opt.fg_labels = self.parse_str(self.opt.fg_labels)
         self.opt.gpu_ids = self.parse_str(self.opt.gpu_ids)

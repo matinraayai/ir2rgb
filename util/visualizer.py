@@ -15,7 +15,7 @@ class Visualizer():
     def __init__(self, opt):
         self.opt = opt
         self.tf_log = opt.tf_log
-        self.use_html = opt.isTrain and not opt.no_html
+        self.use_html = opt.is_train and not opt.no_html
         self.win_size = opt.display_winsize
         self.name = opt.name
         if self.tf_log:

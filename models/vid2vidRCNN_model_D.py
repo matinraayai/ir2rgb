@@ -5,23 +5,23 @@
 """
 import torch
 import util.util as util
-from .base_model import BaseModel
+from .base_model import Model
 from . import networks
 
 """
 Original Discriminator for the Vid2Vid model.
 """
-class Vid2VidRCNNModelD(BaseModel):
+class Vid2VidRCNNModelD(Model):
     def name(self):
         return 'Vid2VidModelD'
 
     def initialize(self, opt):
-        BaseModel.initialize(self, opt)
-        gpu_split_id = opt.n_gpus_gen
-        if opt.batchSize == 1:
+        Model.initialize(self, opt)
+        gpu_split_id = opt.gen_gpus
+        if opt.batch_size == 1:
             gpu_split_id += 1
         self.gpu_ids = ([opt.gpu_ids[0]] + opt.gpu_ids[gpu_split_id:]) \
-                       if opt.n_gpus_gen != len(opt.gpu_ids) else opt.gpu_ids
+                       if opt.gen_gpus != len(opt.gpu_ids) else opt.gpu_ids
         if not opt.debug:
             torch.backends.cudnn.benchmark = True
         self.tD = opt.n_frames_D
@@ -35,11 +35,11 @@ class Vid2VidRCNNModelD(BaseModel):
             self.input_nc += 1
         netD_input_nc = self.input_nc + opt.output_nc
 
-        self.netD = networks.define_D(netD_input_nc, opt.ndf, opt.n_layers_D, opt.norm,
+        self.netD = networks.define_D(netD_input_nc, opt.first_layer_dis_filters, opt.n_layers_D, opt.norm,
                                       opt.num_D, not opt.no_ganFeat, gpu_ids=self.gpu_ids)
 
         if opt.add_face_disc:
-            self.netD_f = networks.define_D(netD_input_nc, opt.ndf,
+            self.netD_f = networks.define_D(netD_input_nc, opt.first_layer_dis_filters,
                                             opt.n_layers_D, opt.norm,
                                             max(1, opt.num_D - 2),
                                             not opt.no_ganFeat,
@@ -51,7 +51,7 @@ class Vid2VidRCNNModelD(BaseModel):
             setattr(self,
                     'netD_T' + str(s),
                     networks.define_D(netD_input_nc,
-                                      opt.ndf,
+                                      opt.first_layer_dis_filters,
                                       opt.n_layers_D,
                                       opt.norm,
                                       opt.num_D,
@@ -240,8 +240,8 @@ class Vid2VidRCNNModelD(BaseModel):
         if face.size()[0]:
             y, x = face[:,1], face[:,2]
             ys, ye, xs, xe = y.min().item(), y.max().item(), x.min().item(), x.max().item()
-            yc, ylen = int(ys+ye)//2, self.opt.fineSize//32*8
-            xc, xlen = int(xs+xe)//2, self.opt.fineSize//32*8
+            yc, ylen = int(ys+ye)//2, self.opt.fine_size//32*8
+            xc, xlen = int(xs+xe)//2, self.opt.fine_size//32*8
             yc = max(ylen//2, min(h-1 - ylen//2, yc))
             xc = max(xlen//2, min(w-1 - xlen//2, xc))
             ys, ye, xs, xe = yc - ylen//2, yc + ylen//2, xc - xlen//2, xc + xlen//2

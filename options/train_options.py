@@ -3,11 +3,14 @@ from .base_options import CommonOptions
 
 class TrainOptions(CommonOptions):
     def __init__(self):
-        super(CommonOptions, self).__init__()
+        super(TrainOptions, self).__init__()
         self.is_train = True
 
     def add_arguments(self):
         CommonOptions.add_arguments(self)
+        # Discriminator Network Architecture ===========================================================================
+        self.parser.add_argument('--first-layer-dis-filters', type=int, default=64,
+                                 help='number of filters in first conv layer of the discriminator network')
         self.parser.add_argument('--display_freq', type=int, default=100,
                                  help='frequency of showing training results on screen')
         self.parser.add_argument('--print_freq', type=int, default=100,

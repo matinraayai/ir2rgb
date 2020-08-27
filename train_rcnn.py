@@ -24,7 +24,7 @@ NUM_EPOCHS = 50
 def create_model():
     # load an instance segmentation model pre-trained pre-trained on COCO
     model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
-    #get number of input features for the classifier
+    #  get number of input features for the classifier
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     # replace the pre-trained head with a new one
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, NUM_CLASSES)
@@ -46,7 +46,7 @@ model, optimizer, lr_scheduler, warmup_lr_scheduler = create_model()
 opt = TrainOptions().parse()
 
 dataset = RCNNDataset(opt)
-data_loader = torch.utils.data.DataLoader(dataset, batch_size=opt.batchSize, 
+data_loader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size,
                                           shuffle=True, 
                                           num_workers=4, collate_fn=utils.collate_fn)
 

@@ -1,41 +1,27 @@
-import os, sys
+import os
+import sys
+from abc import ABC, abstractmethod
 import numpy as np
 import torch
 from .networks import get_grid
 
-class BaseModel(torch.nn.Module):
-    def name(self):
+
+class Model(torch.nn.Module, ABC):
+    @abstractmethod
+    def __str__(self):
         return 'BaseModel'
 
-    def initialize(self, opt):
+    def __init__(self, opt):
+        super(Model, self).__init__()
         self.opt = opt
-        self.gpu_ids = opt.gpu_ids
-        self.isTrain = opt.isTrain
-        self.Tensor = torch.cuda.FloatTensor if self.gpu_ids else torch.Tensor
+        self.Tensor = torch.cuda.FloatTensor if opt.gpu_ids else torch.Tensor
         self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)
 
-    def set_input(self, input):
-        self.input = input
+    # @abstractmethod
+    # def test(self):
+    #     pass
 
-    def forward(self):
-        pass
-
-    # used in test time, no backprop
-    def test(self):
-        pass
-
-    def get_image_paths(self):
-        pass
-
-    def optimize_parameters(self):
-        pass
-
-    def get_current_visuals(self):
-        return self.input
-
-    def get_current_errors(self):
-        return {}
-
+    @abstractmethod
     def save(self, label):
         pass
 
@@ -43,7 +29,7 @@ class BaseModel(torch.nn.Module):
     def save_network(self, network, network_label, epoch_label, gpu_ids):
         save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
         save_path = os.path.join(self.save_dir, save_filename)
-        torch.save(network.cpu().state_dict(), save_path)
+        torch.save(network.state_dict(), save_path)
         if len(gpu_ids) and torch.cuda.is_available():
             network.cuda(gpu_ids[0])
 
@@ -119,7 +105,13 @@ class BaseModel(torch.nn.Module):
         else:
             return tensors[1]
 
-    def build_pyr(self, tensor, nearest=False): # build image pyramid from a single image
+    def build_pyr(self, tensor, nearest=False):
+        """
+        Builds image pyramid from a single image
+        :param tensor:
+        :param nearest:
+        :return:
+        """
         if tensor is None:
             return [None] * self.n_scales
         tensor = [tensor]
@@ -134,10 +126,10 @@ class BaseModel(torch.nn.Module):
         return tensor
 
     def dists_min(self, a, b, num=1):        
-        dists = torch.sum(torch.sum((a-b)*(a-b), dim=0), dim=0)        
+        dists = torch.sum(torch.sum((a - b) * (a - b), dim=0), dim=0)
         if num == 1:
             val, idx = torch.min(dists, dim=0)        
-            #idx = [idx]
+
         else:
             val, idx = torch.sort(dists, dim=0)
             idx = idx[:num]
@@ -145,9 +137,9 @@ class BaseModel(torch.nn.Module):
 
     def get_edges(self, t):
         edge = torch.cuda.ByteTensor(t.size()).zero_()
-        edge[:,:,:,:,1:] = edge[:,:,:,:,1:] | (t[:,:,:,:,1:] != t[:,:,:,:,:-1])
-        edge[:,:,:,:,:-1] = edge[:,:,:,:,:-1] | (t[:,:,:,:,1:] != t[:,:,:,:,:-1])
-        edge[:,:,:,1:,:] = edge[:,:,:,1:,:] | (t[:,:,:,1:,:] != t[:,:,:,:-1,:])
+        edge[:, :, :, :, 1:] = edge[:, :, :, :, 1:] | (t[:, :, :, :, 1:] != t[:, :, :, :, :-1])
+        edge[:, :, :, :, :-1] = edge[:,:,:,:,:-1] | (t[:,:,:,:,1:] != t[:,:,:,:,:-1])
+        edge[:, :, :, 1:, :] = edge[:,:,:,1:,:] | (t[:,:,:,1:,:] != t[:,:,:,:-1,:])
         edge[:,:,:,:-1,:] = edge[:,:,:,:-1,:] | (t[:,:,:,1:,:] != t[:,:,:,:-1,:])
         return edge.float()       
         

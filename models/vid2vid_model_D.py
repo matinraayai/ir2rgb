@@ -3,25 +3,28 @@
 ### Licensed under the CC BY-NC-SA 4.0 license
 (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
+from abc import ABC
+
 import torch
 import util.util as util
-from .base_model import BaseModel
+from .base_model import Model
 from . import networks
 
-"""
-Original Discriminator for the Vid2Vid model.
-"""
-class Vid2VidModelD(BaseModel):
-    def name(self):
+
+class Vid2VidModelD(Model, ABC):
+    """
+    Original Discriminator for the Vid2Vid model.
+    """
+    def __str__(self):
         return 'Vid2VidModelD'
 
-    def initialize(self, opt):
-        BaseModel.initialize(self, opt)
-        gpu_split_id = opt.n_gpus_gen
-        if opt.batchSize == 1:
+    def __init__(self, opt):
+        super(Vid2VidModelD, self).__init__(opt)
+        gpu_split_id = opt.gen_gpus
+        if opt.batch_size == 1:
             gpu_split_id += 1
         self.gpu_ids = ([opt.gpu_ids[0]] + opt.gpu_ids[gpu_split_id:]) \
-                       if opt.n_gpus_gen != len(opt.gpu_ids) else opt.gpu_ids
+            if opt.gen_gpus != len(opt.gpu_ids) else opt.gpu_ids
         if not opt.debug:
             torch.backends.cudnn.benchmark = True
         self.tD = opt.n_frames_D
@@ -35,15 +38,8 @@ class Vid2VidModelD(BaseModel):
             self.input_nc += 1
         netD_input_nc = self.input_nc + opt.output_nc
 
-        self.netD = networks.define_D(netD_input_nc, opt.ndf, opt.n_layers_D, opt.norm,
+        self.netD = networks.define_D(netD_input_nc, opt.first_layer_dis_filters, opt.n_layers_D, opt.norm,
                                       opt.num_D, not opt.no_ganFeat, gpu_ids=self.gpu_ids)
-
-        if opt.add_face_disc:
-            self.netD_f = networks.define_D(netD_input_nc, opt.ndf,
-                                            opt.n_layers_D, opt.norm,
-                                            max(1, opt.num_D - 2),
-                                            not opt.no_ganFeat,
-                                            gpu_ids=self.gpu_ids)
 
         # Temporal Discriminator:==============================================#
         netD_input_nc = opt.output_nc * opt.n_frames_D + 2 * (opt.n_frames_D-1)
@@ -51,7 +47,7 @@ class Vid2VidModelD(BaseModel):
             setattr(self,
                     'netD_T' + str(s),
                     networks.define_D(netD_input_nc,
-                                      opt.ndf,
+                                      opt.first_layer_dis_filters,
                                       opt.n_layers_D,
                                       opt.norm,
                                       opt.num_D,
@@ -60,15 +56,13 @@ class Vid2VidModelD(BaseModel):
         print("Discriminator initialized.")
 
         # Load saved weights from disk:========================================#
-        if opt.continue_train or opt.load_pretrain:
-            self.load_network(self.netD, 'D', opt.which_epoch, opt.load_pretrain)
+        if opt.continue_train or opt.load_pretrained:
+            self.load_network(self.netD, 'D', opt.which_epoch, opt.load_pretrained)
             for s in range(opt.n_scales_temporal):
                 self.load_network(getattr(self, 'netD_T' + str(s)),
                                   'D_T'+str(s),
                                   opt.which_epoch,
-                                  opt.load_pretrain)
-            if opt.add_face_disc:
-                self.load_network(self.netD_f, 'D_f', opt.which_epoch, opt.load_pretrain)
+                                  opt.load_pretrained)
 
         # Loss functions:======================================================#
         self.criterionGAN = networks.GANLoss(opt.gan_mode, tensor=self.Tensor)
@@ -83,14 +77,10 @@ class Vid2VidModelD(BaseModel):
                            'G_Warp', 'F_Flow', 'F_Warp', 'W']
         self.loss_names_T = ['G_T_GAN', 'G_T_GAN_Feat',
                              'D_T_real', 'D_T_fake', 'G_T_Warp']
-        if opt.add_face_disc:
-            self.loss_names += ['G_f_GAN', 'G_f_GAN_Feat', 'D_f_real', 'D_f_fake']
         # Set optimizers:======================================================#
         self.old_lr = opt.lr
         # initialize optimizers D and D_T:=====================================#                                
         params = list(self.netD.parameters())
-        if opt.add_face_disc:
-            params += list(self.netD_f.parameters())
         if opt.TTUR:                
             beta1, beta2 = 0, 0.9
             lr = opt.lr * 2
@@ -160,22 +150,10 @@ class Vid2VidModelD(BaseModel):
             loss_G_GAN += l_G_GAN; loss_G_GAN_Feat += l_G_GAN_Feat
             loss_D_real += l_D_real; loss_D_fake += l_D_fake
 
-        if self.opt.add_face_disc:
-            face_weight = 2
-            ys, ye, xs, xe = self.get_face_region(real_A)
-            if ys is not None:                
-                loss_D_f_real, loss_D_f_fake, loss_G_f_GAN, loss_G_f_GAN_Feat = self.compute_loss_D(self.netD_f,
-                    real_A[:,:,ys:ye,xs:xe], real_B[:,:,ys:ye,xs:xe], fake_B[:,:,ys:ye,xs:xe])  
-                loss_G_f_GAN *= face_weight  
-                loss_G_f_GAN_Feat *= face_weight                  
-            else:
-                loss_D_f_real = loss_D_f_fake = loss_G_f_GAN = loss_G_f_GAN_Feat = torch.zeros_like(loss_D_real)
-
         loss_list = [loss_G_VGG, loss_G_GAN, loss_G_GAN_Feat,
                      loss_D_real, loss_D_fake, 
                      loss_G_Warp, loss_F_Flow, loss_F_Warp, loss_W]
-        if self.opt.add_face_disc:
-            loss_list += [loss_G_f_GAN, loss_G_f_GAN_Feat, loss_D_f_real, loss_D_f_fake]   
+
         loss_list = [loss.view(-1, 1) for loss in loss_list]           
         return loss_list
 
@@ -235,8 +213,8 @@ class Vid2VidModelD(BaseModel):
         if face.size()[0]:
             y, x = face[:,1], face[:,2]
             ys, ye, xs, xe = y.min().item(), y.max().item(), x.min().item(), x.max().item()
-            yc, ylen = int(ys+ye)//2, self.opt.fineSize//32*8
-            xc, xlen = int(xs+xe)//2, self.opt.fineSize//32*8
+            yc, ylen = int(ys+ye)//2, self.opt.fine_size//32*8
+            xc, xlen = int(xs+xe)//2, self.opt.fine_size//32*8
             yc = max(ylen//2, min(h-1 - ylen//2, yc))
             xc = max(xlen//2, min(w-1 - xlen//2, xc))
             ys, ye, xs, xe = yc - ylen//2, yc + ylen//2, xc - xlen//2, xc + xlen//2
@@ -264,9 +242,6 @@ class Vid2VidModelD(BaseModel):
         loss_D = (loss_dict['D_fake'] + loss_dict['D_real']) * 0.5
         loss_G = loss_dict['G_GAN'] + loss_dict['G_GAN_Feat'] + loss_dict['G_VGG']
         loss_G += loss_dict['G_Warp'] + loss_dict['F_Flow'] + loss_dict['F_Warp'] + loss_dict['W']
-        if self.opt.add_face_disc:
-            loss_G += loss_dict['G_f_GAN'] + loss_dict['G_f_GAN_Feat'] 
-            loss_D += (loss_dict['D_f_fake'] + loss_dict['D_f_real']) * 0.5
               
         # collect temporal losses
         loss_D_T = []           
@@ -280,9 +255,7 @@ class Vid2VidModelD(BaseModel):
     def save(self, label):
         self.save_network(self.netD, 'D', label, self.gpu_ids)         
         for s in range(self.opt.n_scales_temporal):
-            self.save_network(getattr(self, 'netD_T'+str(s)), 'D_T'+str(s), label, self.gpu_ids)   
-        if self.opt.add_face_disc:
-            self.save_network(self.netD_f, 'D_f', label, self.gpu_ids)  
+            self.save_network(getattr(self, 'netD_T'+str(s)), 'D_T'+str(s), label, self.gpu_ids)
 
 
 # get temporally subsampled frames for real/fake sequences

@@ -20,6 +20,7 @@ def weights_init(m):
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
 
+
 def get_norm_layer(norm_type='instance'):
     if norm_type == 'batch':
         norm_layer = functools.partial(nn.BatchNorm2d, affine=True)
@@ -29,23 +30,23 @@ def get_norm_layer(norm_type='instance'):
         raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
     return norm_layer
 
+
 def define_G(input_nc, output_nc, prev_output_nc, ngf, which_model_netG, n_downsampling, norm, scale, gpu_ids=[], opt=[]):
     netG = None    
     norm_layer = get_norm_layer(norm_type=norm)
 
     if which_model_netG == 'global':        
-        netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsampling, opt.n_blocks, norm_layer)            
+        netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsampling, opt.gen_blocks, norm_layer)
     elif which_model_netG == 'local':        
-        netG = LocalEnhancer(input_nc, output_nc, ngf, n_downsampling, opt.n_blocks, opt.n_local_enhancers, opt.n_blocks_local, norm_layer)
+        netG = LocalEnhancer(input_nc, output_nc, ngf, n_downsampling, opt.gen_blocks, opt.n_local_enhancers, opt.gen_blocks_local, norm_layer)
     elif which_model_netG == 'global_with_features':    
-        netG = Global_with_z(input_nc, output_nc, opt.feat_num, ngf, n_downsampling, opt.n_blocks, norm_layer)     
+        netG = Global_with_z(input_nc, output_nc, opt.feat_num, ngf, n_downsampling, opt.gen_blocks, norm_layer)
     elif which_model_netG == 'local_with_features':    
-        netG = Local_with_z(input_nc, output_nc, opt.feat_num, ngf, n_downsampling, opt.n_blocks, opt.n_local_enhancers, opt.n_blocks_local, norm_layer)
-
+        netG = Local_with_z(input_nc, output_nc, opt.feat_num, ngf, n_downsampling, opt.gen_blocks, opt.n_local_enhancers, opt.gen_blocks_local, norm_layer)
     elif which_model_netG == 'composite':
-        netG = CompositeGenerator(opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling, opt.n_blocks, opt.fg, opt.no_flow, norm_layer)
+        netG = CompositeGenerator(opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling, opt.gen_blocks, opt.fg, opt.no_flow, norm_layer)
     elif which_model_netG == 'compositeLocal':
-        netG = CompositeLocalGenerator(opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling, opt.n_blocks_local, opt.fg, opt.no_flow, 
+        netG = CompositeLocalGenerator(opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling, opt.gen_blocks_local, opt.fg, opt.no_flow,
                                        norm_layer, scale=scale)    
     elif which_model_netG == 'encoder':
         netG = Encoder(input_nc, output_nc, ngf, n_downsampling, norm_layer)

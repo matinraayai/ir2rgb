@@ -1,87 +1,85 @@
-### Copyright (C) 2017 NVIDIA Corporation. All rights reserved. 
-### Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
+"""
+Copyright (C) 2017 NVIDIA Corporation. All rights reserved.
+Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
+"""
+
 import numpy as np
-import math
+from abc import ABC
 import torch
-import torch.nn.functional as F
-import os
-import sys
-from collections import OrderedDict
 from torch.autograd import Variable
 import util.util as util
-from .base_model import BaseModel
+from .base_model import Model
 from . import networks
 
-class Vid2VidModelG(BaseModel):
-    def name(self):
-        return 'Vid2VidModelG'
 
-    def initialize(self, opt):
-        BaseModel.initialize(self, opt)
-        self.isTrain = opt.isTrain        
-        if not opt.debug:
-            torch.backends.cudnn.benchmark = True       
-        
-        # define net G                        
-        self.n_scales = opt.n_scales_spatial        
+class Vid2VidModelG(Model, ABC):
+    def __init__(self, opt):
+        super(Vid2VidModelG, self).__init__(opt)
+        # define net G
+        self.n_scales = opt.n_scales_spatial
         self.use_single_G = opt.use_single_G
-        self.split_gpus = (self.opt.n_gpus_gen < len(self.opt.gpu_ids)) and (self.opt.batchSize == 1)
+        self.split_gpus = (self.opt.gen_gpus < len(self.opt.gpu_ids)) and (self.opt.batch_size == 1)
 
         input_nc = opt.label_nc if opt.label_nc != 0 else opt.input_nc
-        netG_input_nc = input_nc * opt.n_frames_G
+        netG_input_nc = input_nc * opt.n_input_gen_frames
         if opt.use_instance:
-            netG_input_nc += opt.n_frames_G        
-        prev_output_nc = (opt.n_frames_G - 1) * opt.output_nc 
-        if opt.openpose_only:
-            opt.no_flow = True     
+            netG_input_nc += opt.n_input_gen_frames
+        prev_output_nc = (opt.n_input_gen_frames - 1) * opt.output_nc
 
-        self.netG0 = networks.define_G(netG_input_nc, opt.output_nc, prev_output_nc, opt.ngf, opt.netG, 
-                                       opt.n_downsample_G, opt.norm, 0, self.gpu_ids, opt)
-        for s in range(1, self.n_scales):            
-            ngf = opt.ngf // (2**s)
-            setattr(self, 'netG'+str(s), networks.define_G(netG_input_nc, opt.output_nc, prev_output_nc, ngf, opt.netG+'Local', 
-                                                           opt.n_downsample_G, opt.norm, s, self.gpu_ids, opt))
+        self.netG0 = networks.define_G(netG_input_nc, opt.output_nc, prev_output_nc, opt.first_layer_gen_filters,
+                                       opt.gen_network,
+                                       opt.gen_ds_layers, opt.norm, 0, self.opt.gpu_ids, opt)
+        for s in range(1, self.n_scales):
+            ngf = opt.first_layer_gen_filters // (2 ** s)
+            setattr(self, 'netG' + str(s),
+                    networks.define_G(netG_input_nc, opt.output_nc, prev_output_nc, ngf, opt.gen_network + 'Local',
+                                      opt.gen_ds_layers, opt.norm, s, self.opt.gpu_ids, opt))
 
-        print('---------- Networks initialized -------------') 
+        print('---------- Networks initialized -------------')
         print('-----------------------------------------------')
 
         # load networks
-        if not self.isTrain or opt.continue_train or opt.load_pretrain:                    
+        if not opt.is_train or opt.continue_train or opt.load_pretrained:
             for s in range(self.n_scales):
-                self.load_network(getattr(self, 'netG'+str(s)), 'G'+str(s), opt.which_epoch, opt.load_pretrain)
-                
+                self.load_network(getattr(self, 'netG' + str(s)), 'G' + str(s), opt.which_epoch, opt.load_pretrained)
+
         self.netG_i = self.load_single_G() if self.use_single_G else None
-        
+
         # define training variables
-        if self.isTrain:            
-            self.n_gpus = self.opt.n_gpus_gen if self.opt.batchSize == 1 else 1    # number of gpus for running generator            
-            self.n_frames_bp = 1                                                   # number of frames to backpropagate the loss            
-            self.n_frames_per_gpu = min(self.opt.max_frames_per_gpu, self.opt.n_frames_total // self.n_gpus) # number of frames in each GPU
-            self.n_frames_load = self.n_gpus * self.n_frames_per_gpu   # number of frames in all GPUs            
+        if opt.is_train:
+            self.n_gpus = self.opt.gen_gpus if self.opt.batch_size == 1 else 1  # number of gpus for running generator
+            self.n_frames_bp = 1  # number of frames to backpropagate the loss
+            self.n_frames_per_gpu = min(self.opt.max_frames_per_gpu,
+                                        self.opt.n_frames_total // self.n_gpus)  # number of frames in each GPU
+            self.n_frames_load = self.n_gpus * self.n_frames_per_gpu  # number of frames in all GPUs
             if self.opt.debug:
-                print('training %d frames at once, using %d gpus, frames per gpu = %d' % (self.n_frames_load, 
-                    self.n_gpus, self.n_frames_per_gpu))
+                print('training %d frames at once, using %d gpus, frames per gpu = %d' % (self.n_frames_load,
+                                                                                          self.n_gpus,
+                                                                                          self.n_frames_per_gpu))
 
         # set loss functions and optimizers
-        if self.isTrain:            
+        if opt.is_train:
             self.old_lr = opt.lr
             self.finetune_all = opt.niter_fix_global == 0
             if not self.finetune_all:
                 print('------------ Only updating the finest scale for %d epochs -----------' % opt.niter_fix_global)
-          
-            # initialize optimizer G
-            params = list(getattr(self, 'netG'+str(self.n_scales-1)).parameters())
-            if self.finetune_all:
-                for s in range(self.n_scales-1):
-                    params += list(getattr(self, 'netG'+str(s)).parameters())
 
-            if opt.TTUR:                
+            # initialize optimizer G
+            params = list(getattr(self, 'netG' + str(self.n_scales - 1)).parameters())
+            if self.finetune_all:
+                for s in range(self.n_scales - 1):
+                    params += list(getattr(self, 'netG' + str(s)).parameters())
+
+            if opt.TTUR:
                 beta1, beta2 = 0, 0.9
                 lr = opt.lr / 2
             else:
                 beta1, beta2 = opt.beta1, 0.999
-                lr = opt.lr            
+                lr = opt.lr
             self.optimizer_G = torch.optim.Adam(params, lr=lr, betas=(beta1, beta2))
+
+    def __str__(self):
+        return 'Vid2VidModelG'
 
     def encode_input(self, input_map, real_image, inst_map=None):        
         size = input_map.size()
@@ -112,9 +110,9 @@ class Vid2VidModelG(BaseModel):
         return input_map, real_image, pool_map
 
     def forward(self, input_A, input_B, inst_A, fake_B_prev, dummy_bs=0):
-        tG = self.opt.n_frames_G           
-        gpu_split_id = self.opt.n_gpus_gen + 1        
-        if input_A.get_device() == self.gpu_ids[0]:
+        tG = self.opt.n_input_gen_frames
+        gpu_split_id = self.opt.gen_gpus + 1
+        if input_A.get_device() == self.opt.gpu_ids[0]:
             input_A, input_B, inst_A, fake_B_prev = util.remove_dummy_from_tensor([input_A, input_B, inst_A, fake_B_prev], dummy_bs)
             if input_A.size(0) == 0: return self.return_dummy(input_A)
         real_A_all, real_B_all, _ = self.encode_input(input_A, input_B, inst_A)        
@@ -129,7 +127,7 @@ class Vid2VidModelG(BaseModel):
             netG_s = torch.nn.parallel.replicate(netG_s, self.opt.gpu_ids[:gpu_split_id]) if self.split_gpus else [netG_s]
             netG.append(netG_s)
 
-        start_gpu = self.gpu_ids[1] if self.split_gpus else real_A_all.get_device()        
+        start_gpu = self.opt.gpu_ids[1] if self.split_gpus else real_A_all.get_device()
         fake_B, fake_B_raw, flow, weight = self.generate_frame_train(netG, real_A_all, fake_B_prev, start_gpu, is_first_frame)        
         fake_B_prev = [B[:, -tG+1:].detach() for B in fake_B]
         fake_B = [B[:, tG-1:] for B in fake_B]
@@ -137,11 +135,11 @@ class Vid2VidModelG(BaseModel):
         return fake_B[0], fake_B_raw, flow, weight, real_A_all[:,tG-1:], real_B_all[:,tG-2:], fake_B_prev
 
     def generate_frame_train(self, netG, real_A_all, fake_B_pyr, start_gpu, is_first_frame):        
-        tG = self.opt.n_frames_G        
+        tG = self.opt.n_input_gen_frames
         n_frames_load = self.n_frames_load
         n_scales = self.n_scales
         finetune_all = self.finetune_all
-        dest_id = self.gpu_ids[0] if self.split_gpus else start_gpu        
+        dest_id = self.opt.gpu_ids[0] if self.split_gpus else start_gpu
 
         ### generate inputs   
         real_A_pyr = self.build_pyr(real_A_all)        
@@ -209,7 +207,7 @@ class Vid2VidModelG(BaseModel):
         return fake_B, real_A[0][0, -1]
 
     def generate_frame_infer(self, real_A, s):
-        tG = self.opt.n_frames_G
+        tG = self.opt.n_input_gen_frames
         _, _, _, h, w = real_A.size()
         si = self.n_scales-1-s
         netG_s = getattr(self, 'netG'+str(s))
@@ -229,10 +227,10 @@ class Vid2VidModelG(BaseModel):
         return fake_B
 
     def generate_first_frame(self, real_A, real_B, pool_map=None):
-        tG = self.opt.n_frames_G
+        tG = self.opt.n_input_gen_frames
         if self.opt.no_first_img:          # model also generates first frame            
             fake_B_prev = Variable(self.Tensor(self.bs, tG-1, self.opt.output_nc, self.height, self.width).zero_())
-        elif self.opt.isTrain or self.opt.use_real_img: # assume first frame is given
+        elif self.opt.is_train or self.opt.use_real_img: # assume first frame is given
             fake_B_prev = real_B[:,:(tG-1),...]            
         elif self.opt.use_single_G:        # use another model (trained on single images) to generate first frame
             fake_B_prev = None
@@ -246,14 +244,14 @@ class Vid2VidModelG(BaseModel):
             raise ValueError('Please specify the method for generating the first frame')
             
         fake_B_prev = self.build_pyr(fake_B_prev)
-        if not self.opt.isTrain:
+        if not self.opt.is_train:
             fake_B_prev = [B[0] for B in fake_B_prev]
         return fake_B_prev    
 
     def return_dummy(self, input_A):
         h, w = input_A.size()[3:]
         t = self.n_frames_load
-        tG = self.opt.n_frames_G  
+        tG = self.opt.n_input_gen_frames
         flow, weight = (self.Tensor(1, t, 2, h, w), self.Tensor(1, t, 1, h, w)) if not self.opt.no_flow else (None, None)
         return self.Tensor(1, t, 3, h, w), self.Tensor(1, t, 3, h, w), flow, weight, \
                self.Tensor(1, t, self.opt.input_nc, h, w), self.Tensor(1, t+1, 3, h, w), self.build_pyr(self.Tensor(1, tG-1, 3, h, w))
@@ -261,26 +259,26 @@ class Vid2VidModelG(BaseModel):
     def load_single_G(self): # load the model that generates the first frame
         opt = self.opt     
         s = self.n_scales
-        if 'City' in self.opt.dataroot:
+        if 'City' in self.opt.data_root:
             single_path = 'checkpoints/label2city_single/'
-            if opt.loadSize == 512:
+            if opt.load_size == 512:
                 load_path = single_path + 'latest_net_G_512.pth'            
-                netG = networks.define_G(35, 3, 0, 64, 'global', 3, 'instance', 0, self.gpu_ids, opt)                
-            elif opt.loadSize == 1024:                            
+                netG = networks.define_G(35, 3, 0, 64, 'global', 3, 'instance', 0, self.opt.gpu_ids, opt)
+            elif opt.load_size == 1024:
                 load_path = single_path + 'latest_net_G_1024.pth'
-                netG = networks.define_G(35, 3, 0, 64, 'global', 4, 'instance', 0, self.gpu_ids, opt)                
-            elif opt.loadSize == 2048:     
+                netG = networks.define_G(35, 3, 0, 64, 'global', 4, 'instance', 0, self.opt.gpu_ids, opt)
+            elif opt.load_size == 2048:
                 load_path = single_path + 'latest_net_G_2048.pth'
-                netG = networks.define_G(35, 3, 0, 32, 'local', 4, 'instance', 0, self.gpu_ids, opt)
+                netG = networks.define_G(35, 3, 0, 32, 'local', 4, 'instance', 0, self.opt.gpu_ids, opt)
             else:
                 raise ValueError('Single image generator does not exist')
-        elif 'face' in self.opt.dataroot:            
+        elif 'face' in self.opt.data_root:
             single_path = 'checkpoints/edge2face_single/'
             load_path = single_path + 'latest_net_G.pth' 
             opt.feat_num = 16           
-            netG = networks.define_G(15, 3, 0, 64, 'global_with_features', 3, 'instance', 0, self.gpu_ids, opt)
+            netG = networks.define_G(15, 3, 0, 64, 'global_with_features', 3, 'instance', 0, self.opt.gpu_ids, opt)
             encoder_path = single_path + 'latest_net_E.pth'
-            self.netE = networks.define_G(3, 16, 0, 16, 'encoder', 4, 'instance', 0, self.gpu_ids)
+            self.netE = networks.define_G(3, 16, 0, 16, 'encoder', 4, 'instance', 0, self.opt.gpu_ids)
             self.netE.load_state_dict(torch.load(encoder_path))
         else:
             raise ValueError('Single image generator does not exist')
@@ -337,4 +335,4 @@ class Vid2VidModelG(BaseModel):
 
     def save(self, label):        
         for s in range(self.n_scales):
-            self.save_network(getattr(self, 'netG'+str(s)), 'G'+str(s), label, self.gpu_ids)                    
+            self.save_network(getattr(self, 'netG'+str(s)), 'G'+str(s), label, self.opt.gpu_ids)

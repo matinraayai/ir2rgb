@@ -1,4 +1,4 @@
-# IR 2 RGB video translation
+# Infrared to RGB video translation Using Generative Adversarial Networks
 
 From vid2vid (https://github.com/NVIDIA/vid2vid)
 
