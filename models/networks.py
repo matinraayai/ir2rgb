@@ -1,107 +1,96 @@
-### Copyright (C) 2017 NVIDIA Corporation. All rights reserved. 
-### Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
+"""
+Copyright (C) 2017 NVIDIA Corporation. All rights reserved.
+Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
+"""
+from abc import ABC
 import torch
 import torch.nn as nn
 from torch.nn import init
 import functools
 from torch.autograd import Variable
 import numpy as np
-import torch.nn.functional as F
 import copy
 
-###############################################################################
-# Functions
-###############################################################################
-def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1 and hasattr(m, 'weight'):        
-        m.weight.data.normal_(0.0, 0.02)
-    elif classname.find('BatchNorm2d') != -1:
-        m.weight.data.normal_(1.0, 0.02)
-        m.bias.data.fill_(0)
+
+def weights_init(m: nn.Module) -> None:
+    if isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv3d):
+        init.normal_(m.weight, 0.0, 0.02)
+    if isinstance(m, nn.BatchNorm2d):
+        init.normal_(m.weight, 1.0, 0.02)
+        init.zeros_(m.bias)
+    if isinstance(m, nn.InstanceNorm2d):
+        init.normal_(m.weight, 1.0, 0.02)
 
 
-def get_norm_layer(norm_type='instance'):
+def get_norm_layer(norm_type: str = 'instance'):
     if norm_type == 'batch':
         norm_layer = functools.partial(nn.BatchNorm2d, affine=True)
     elif norm_type == 'instance':
         norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=True)
     else:
-        raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
+        raise NotImplementedError(f'normalization layer {norm_type} is not found')
     return norm_layer
 
 
-def define_G(input_nc, output_nc, prev_output_nc, ngf, which_model_netG, n_downsampling, norm, scale, gpu_ids=[], opt=[]):
-    netG = None    
+def build_generator(input_nc, output_nc, prev_output_nc, ngf, model_name, n_downsampling, norm, scale, opt=()):
+    generator = None
     norm_layer = get_norm_layer(norm_type=norm)
 
-    if which_model_netG == 'global':        
-        netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsampling, opt.gen_blocks, norm_layer)
-    elif which_model_netG == 'local':        
-        netG = LocalEnhancer(input_nc, output_nc, ngf, n_downsampling, opt.gen_blocks, opt.n_local_enhancers, opt.gen_blocks_local, norm_layer)
-    elif which_model_netG == 'global_with_features':    
-        netG = Global_with_z(input_nc, output_nc, opt.feat_num, ngf, n_downsampling, opt.gen_blocks, norm_layer)
-    elif which_model_netG == 'local_with_features':    
-        netG = Local_with_z(input_nc, output_nc, opt.feat_num, ngf, n_downsampling, opt.gen_blocks, opt.n_local_enhancers, opt.gen_blocks_local, norm_layer)
-    elif which_model_netG == 'composite':
-        netG = CompositeGenerator(opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling, opt.gen_blocks, opt.fg, opt.no_flow, norm_layer)
-    elif which_model_netG == 'compositeLocal':
-        netG = CompositeLocalGenerator(opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling, opt.gen_blocks_local, opt.fg, opt.no_flow,
-                                       norm_layer, scale=scale)    
-    elif which_model_netG == 'encoder':
-        netG = Encoder(input_nc, output_nc, ngf, n_downsampling, norm_layer)
+    if model_name == 'global':
+        generator = GlobalGenerator(input_nc, output_nc, ngf, n_downsampling, opt.gen_blocks, norm_layer)
+    elif model_name == 'local':
+        generator = LocalEnhancer(input_nc, output_nc, ngf, n_downsampling, opt.gen_blocks,
+                                  opt.n_local_enhancers, opt.gen_blocks, norm_layer)
+    elif model_name == 'global-with-features':
+        generator = Global_with_z(input_nc, output_nc, opt.feat_num, ngf, n_downsampling, opt.gen_blocks, norm_layer)
+    elif model_name == 'local-with-features':
+        generator = Local_with_z(input_nc, output_nc, opt.feat_num, ngf, n_downsampling, opt.gen_blocks,
+                                 opt.n_local_enhancers, opt.n_blocks_local, norm_layer)
+    elif model_name == 'composite':
+        generator = CompositeGenerator(opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling,
+                                       opt.gen_blocks, opt.fg, opt.no_flow, norm_layer)
+    elif model_name == 'composite-local':
+        generator = CompositeLocalGenerator(opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling,
+                                            opt.n_blocks_local, opt.fg, opt.no_flow, norm_layer, scale=scale)
+    elif model_name == 'encoder':
+        generator = Encoder(input_nc, output_nc, ngf, n_downsampling, norm_layer)
     else:
-        raise NotImplementedError('Generator model name [%s] is not recognized' % which_model_netG)
+        raise NotImplementedError(f'Generator model named {model_name} is not implemented')
+    generator.apply(weights_init)
+    return generator
 
-    #print_network(netG)
-    if len(gpu_ids) > 0:
-        netG.cuda(gpu_ids[0])
-    netG.apply(weights_init)
-    return netG
 
-def define_D(input_nc, ndf, n_layers_D, norm='instance', num_D=1, getIntermFeat=False, gpu_ids=[]):        
+def build_discriminator(input_nc, ndf, n_layers_D, norm='instance', num_D=1, get_interm_feat=False):
     norm_layer = get_norm_layer(norm_type=norm)   
-    netD = MultiscaleDiscriminator(input_nc, ndf, n_layers_D, norm_layer, num_D, getIntermFeat)   
-    #print_network(netD)
-    if len(gpu_ids) > 0:    
-        netD.cuda(gpu_ids[0])
-    netD.apply(weights_init)
-    return netD
+    discriminator = MultiscaleDiscriminator(input_nc, ndf, n_layers_D, norm_layer, num_D, get_interm_feat)
+    discriminator.apply(weights_init)
+    return discriminator
 
-def print_network(net):
-    if isinstance(net, list):
-        net = net[0]
-    num_params = 0
-    for param in net.parameters():
-        num_params += param.numel()
-    print(net)
-    print('Total number of parameters: %d' % num_params)
 
-def get_grid(batchsize, rows, cols, gpu_id=0, dtype=torch.float32):
+def get_grid(batch_size, rows, cols, gpu_id=0, dtype=torch.float32):
     hor = torch.linspace(-1.0, 1.0, cols)
     hor.requires_grad = False
     hor = hor.view(1, 1, 1, cols)
-    hor = hor.expand(batchsize, 1, rows, cols)
+    hor = hor.expand(batch_size, 1, rows, cols)
     ver = torch.linspace(-1.0, 1.0, rows)
     ver.requires_grad = False
     ver = ver.view(1, 1, rows, 1)
-    ver = ver.expand(batchsize, 1, rows, cols)
+    ver = ver.expand(batch_size, 1, rows, cols)
 
     t_grid = torch.cat([hor, ver], 1)
     t_grid.requires_grad = False
 
-    if dtype == torch.float16: t_grid = t_grid.half()
+    if dtype == torch.float16:
+        t_grid = t_grid.half()
     return t_grid.cuda(gpu_id)
 
-##############################################################################
-# Classes
-##############################################################################
+
 class BaseNetwork(nn.Module):
     def __init__(self):
         super(BaseNetwork, self).__init__()
 
-    def grid_sample(self, input1, input2):
-        if self.opt.fp16: # not sure if it's necessary
+    def grid_sample(self, input1, input2, fp16):
+        if fp16:  # not sure if it's necessary
             return torch.nn.functional.grid_sample(input1.float(), input2.float(), mode='bilinear', padding_mode='border').half()
         else:
             return torch.nn.functional.grid_sample(input1, input2, mode='bilinear', padding_mode='border')
@@ -112,22 +101,23 @@ class BaseNetwork(nn.Module):
             self.grid = get_grid(b, h, w, gpu_id=flow.get_device(), dtype=flow.dtype)            
         flow = torch.cat([flow[:, 0:1, :, :] / ((w - 1.0) / 2.0), flow[:, 1:2, :, :] / ((h - 1.0) / 2.0)], dim=1)        
         final_grid = (self.grid + flow).permute(0, 2, 3, 1).cuda(image.get_device())
-        output = self.grid_sample(image, final_grid)
+        output = self.grid_sample(image, final_grid, self.fp16)
         return output
 
-class CompositeGenerator(BaseNetwork):
-    def __init__(self, opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling, n_blocks, use_fg_model=False, no_flow=False,
-                norm_layer=nn.BatchNorm2d, padding_type='reflect'):
+
+class CompositeGenerator(BaseNetwork, ABC):
+    def __init__(self, opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling, n_blocks, use_fg_model=False,
+                 no_flow=False, norm_layer=nn.BatchNorm2d, padding_type='reflect'):
         assert(n_blocks >= 0)
-        super(CompositeGenerator, self).__init__()                
-        self.opt = opt
+        super(CompositeGenerator, self).__init__()
+        self.fp16 = opt.fp16
         self.n_downsampling = n_downsampling
         self.use_fg_model = use_fg_model
         self.no_flow = no_flow
         activation = nn.ReLU(True)
         
         if use_fg_model:
-            ### individial image generation
+            # individial image generation
             ngf_indv = ngf // 2 if n_downsampling > 2 else ngf
             indv_nc = input_nc
             indv_down = [nn.ReflectionPad2d(3), nn.Conv2d(indv_nc, ngf_indv, kernel_size=7, padding=0), 
@@ -232,11 +222,12 @@ class CompositeGenerator(BaseNetwork):
 
         return img_final, flow, weight, img_raw, img_feat, flow_feat, img_fg_feat
 
+
 class CompositeLocalGenerator(BaseNetwork):
     def __init__(self, opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling, n_blocks_local, use_fg_model=False, no_flow=False,
                  norm_layer=nn.BatchNorm2d, padding_type='reflect', scale=1):        
         super(CompositeLocalGenerator, self).__init__()                
-        self.opt = opt
+        self.fp16 = opt.fp16
         self.use_fg_model = use_fg_model
         self.no_flow = no_flow
         self.scale = scale    
@@ -324,6 +315,7 @@ class CompositeLocalGenerator(BaseNetwork):
             img_raw = img_fg * mask + img_raw * (1-mask)         
 
         return img_final, flow, weight, img_raw, img_feat, flow_feat, img_fg_feat
+
 
 class GlobalGenerator(nn.Module):
     def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3, n_blocks=9, norm_layer=nn.BatchNorm2d, 
@@ -774,6 +766,7 @@ class GANLoss(nn.Module):
             target_tensor = self.get_target_tensor(input[-1], target_is_real)
             return self.loss(input[-1], target_tensor)
 
+
 class VGGLoss(nn.Module):
     def __init__(self, gpu_id=0):
         super(VGGLoss, self).__init__()        
@@ -844,6 +837,7 @@ class MaskedL1Loss(nn.Module):
         mask = mask.expand(-1, input.size()[1], -1, -1)
         loss = self.criterion(input * mask, target * mask)
         return loss
+
 
 class MultiscaleL1Loss(nn.Module):
     def __init__(self, scale=5):
