@@ -11,7 +11,7 @@ import torch
 
 from options.train_options import TrainOptions
 from data.dataset import create_dataloader
-from models.models import create_model, create_optimizer, init_params, save_models, update_models
+from models.models import prepare_models, create_optimizer, init_params, save_models, update_models
 import util.util as util
 from util.visualizer import Visualizer
 
@@ -20,18 +20,12 @@ warnings.filterwarnings("ignore")
 
 def train():
     opt = TrainOptions().parse()
-    if opt.debug:
-        opt.display_freq = 1
-        opt.print_freq = 1
-        opt.dataloader_threads = 1
-
     # Initialize dataset:==============================================================================================#
     data_loader = create_dataloader(opt)
-    dataset = data_loader.dataset
     dataset_size = len(data_loader)
     print(f'Number of training videos = {dataset_size}')
     # Initialize models:===============================================================================================#
-    models = create_model(opt)
+    models = prepare_models(opt)
     modelG, modelD, flowNet, optimizer_G, optimizer_D, optimizer_D_T = create_optimizer(opt, models)
 
     # Set parameters:==================================================================================================#
@@ -163,7 +157,7 @@ def train():
                              (epoch, opt.niter + opt.niter_decay,
                               time.time() - epoch_start_time))
 
-        ### save model for this epoch and update model params:=================#
+        # save model for this epoch and update model params:=================#
         save_models(opt, epoch, epoch_iter, total_steps, visualizer,
                     iter_path, modelG, modelD, end_of_epoch=True)
         update_models(opt, epoch, modelG, modelD, data_loader)

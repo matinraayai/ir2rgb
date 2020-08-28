@@ -191,12 +191,12 @@ class Vid2VidRCNNModelG(Model):
                         fake_B_fg_feat = fake_B_fg_feat.detach()
                 
                 # collect results into a sequence
-                fake_B_pyr[si] = self.concat([fake_B_pyr[si], fake_B.unsqueeze(1).cuda(dest_id)], dim=1)                                
+                fake_B_pyr[si] = concat([fake_B_pyr[si], fake_B.unsqueeze(1).cuda(dest_id)], dim=1)
                 if s == n_scales-1:                    
-                    fake_Bs_raw = self.concat([fake_Bs_raw, fake_B_raw.unsqueeze(1).cuda(dest_id)], dim=1)
+                    fake_Bs_raw = concat([fake_Bs_raw, fake_B_raw.unsqueeze(1).cuda(dest_id)], dim=1)
                     if flow is not None:
-                        flows = self.concat([flows, flow.unsqueeze(1).cuda(dest_id)], dim=1)
-                        weights = self.concat([weights, weight.unsqueeze(1).cuda(dest_id)], dim=1)                        
+                        flows = concat([flows, flow.unsqueeze(1).cuda(dest_id)], dim=1)
+                        weights = concat([weights, weight.unsqueeze(1).cuda(dest_id)], dim=1)
         
         return fake_B_pyr, fake_Bs_raw, flows, weights
 
@@ -246,7 +246,7 @@ class Vid2VidRCNNModelG(Model):
             for i in range(tG-1):                
                 feat_map = self.get_face_features(real_B[:,i], pool_map[:,i]) if self.opt.dataset_mode == 'face' else None
                 fake_B = self.netG_i.forward(real_A[:,i], feat_map).unsqueeze(1)                
-                fake_B_prev = self.concat([fake_B_prev, fake_B], dim=1)
+                fake_B_prev = concat([fake_B_prev, fake_B], dim=1)
         else:
             raise ValueError('Please specify the method for generating the first frame')
             

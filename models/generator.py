@@ -10,11 +10,12 @@ from torch.autograd import Variable
 import util.util as util
 from .base_model import Model
 from . import networks
+from .utils import save_network, concat
 
 
-class Vid2VidModelG(Model, ABC):
+class Vid2VidGenerator(Model, ABC):
     def __init__(self, opt):
-        super(Vid2VidModelG, self).__init__(opt)
+        super(Vid2VidGenerator, self).__init__(opt)
         # define net G
         self.n_scales = opt.n_scales_spatial
         self.use_single_G = opt.use_single_G
@@ -34,9 +35,6 @@ class Vid2VidModelG(Model, ABC):
             setattr(self, 'netG' + str(s),
                     networks.define_G(netG_input_nc, opt.output_nc, prev_output_nc, ngf, opt.gen_network + 'Local',
                                       opt.gen_ds_layers, opt.norm, s, self.opt.gpu_ids, opt))
-
-        print('---------- Networks initialized -------------')
-        print('-----------------------------------------------')
 
         # load networks
         if not opt.is_train or opt.continue_train or opt.load_pretrained:
@@ -79,12 +77,10 @@ class Vid2VidModelG(Model, ABC):
             self.optimizer_G = torch.optim.Adam(params, lr=lr, betas=(beta1, beta2))
 
     def __str__(self):
-        return 'Vid2VidModelG'
+        return 'Vid2Vid Generator'
 
-    def encode_input(self, input_map, real_image, inst_map=None):        
-        size = input_map.size()
-        self.bs, tG, self.height, self.width = size[0], size[1], size[3], size[4]
-        
+    def encode_input(self, input_map, real_image, inst_map=None):
+        self.bs, tG, self.height, self.width = input_map.size()[0: 4]
         input_map = input_map.data.cuda()                
         if self.opt.label_nc != 0:                        
             # create one-hot vector for label map             
@@ -184,12 +180,12 @@ class Vid2VidModelG(Model, ABC):
                         fake_B_fg_feat = fake_B_fg_feat.detach()
                 
                 # collect results into a sequence
-                fake_B_pyr[si] = self.concat([fake_B_pyr[si], fake_B.unsqueeze(1).cuda(dest_id)], dim=1)                                
+                fake_B_pyr[si] = concat([fake_B_pyr[si], fake_B.unsqueeze(1).cuda(dest_id)], dim=1)
                 if s == n_scales-1:                    
-                    fake_Bs_raw = self.concat([fake_Bs_raw, fake_B_raw.unsqueeze(1).cuda(dest_id)], dim=1)
+                    fake_Bs_raw = concat([fake_Bs_raw, fake_B_raw.unsqueeze(1).cuda(dest_id)], dim=1)
                     if flow is not None:
-                        flows = self.concat([flows, flow.unsqueeze(1).cuda(dest_id)], dim=1)
-                        weights = self.concat([weights, weight.unsqueeze(1).cuda(dest_id)], dim=1)                        
+                        flows = concat([flows, flow.unsqueeze(1).cuda(dest_id)], dim=1)
+                        weights = concat([weights, weight.unsqueeze(1).cuda(dest_id)], dim=1)
         
         return fake_B_pyr, fake_Bs_raw, flows, weights
 
@@ -239,7 +235,7 @@ class Vid2VidModelG(Model, ABC):
             for i in range(tG-1):                
                 feat_map = self.get_face_features(real_B[:,i], pool_map[:,i]) if self.opt.dataset_mode == 'face' else None
                 fake_B = self.netG_i.forward(real_A[:,i], feat_map).unsqueeze(1)                
-                fake_B_prev = self.concat([fake_B_prev, fake_B], dim=1)
+                fake_B_prev = concat([fake_B_prev, fake_B], dim=1)
         else:
             raise ValueError('Please specify the method for generating the first frame')
             
@@ -335,4 +331,4 @@ class Vid2VidModelG(Model, ABC):
 
     def save(self, label):        
         for s in range(self.n_scales):
-            self.save_network(getattr(self, 'netG'+str(s)), 'G'+str(s), label, self.opt.gpu_ids)
+            save_network(getattr(self, 'netG'+str(s)), 'G'+str(s), label, self.save_dir)

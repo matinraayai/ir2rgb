@@ -11,7 +11,7 @@ import torch
 
 from options.train_options import TrainOptions
 from data.dataset import create_dataloader
-from models.models import create_model, create_optimizer, init_params,\
+from models.models import prepare_models, create_optimizer, init_params,\
                           save_models, update_models
 import util.util as util
 from util.visualizer import Visualizer
@@ -33,7 +33,7 @@ def train():
     print('Number of training videos = %d' % dataset_size)
 
     # Initialize models:=======================================================#
-    models = create_model(opt)
+    models = prepare_models(opt)
     modelG, modelD, flowNet, optimizer_G, optimizer_D, optimizer_D_T = \
             create_optimizer(opt, models)
 

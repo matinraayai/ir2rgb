@@ -9,6 +9,7 @@ import torch
 import util.util as util
 from .base_model import Model
 from . import networks
+from .utils import save_network
 
 
 class Vid2VidModelD(Model, ABC):
@@ -30,8 +31,7 @@ class Vid2VidModelD(Model, ABC):
         self.tD = opt.n_frames_D
         self.output_nc = opt.output_nc 
 
-        # Network Definitions:=================================================# 
-        print("Initializing the discriminator network...")
+        # Network Definitions:=================================================#
         # Single Image Discriminator:==========================================#
         self.input_nc = opt.label_nc if opt.label_nc != 0 else opt.input_nc
         if opt.use_instance:
@@ -53,7 +53,6 @@ class Vid2VidModelD(Model, ABC):
                                       opt.num_D,
                                       not opt.no_ganFeat,
                                       gpu_ids=self.gpu_ids))
-        print("Discriminator initialized.")
 
         # Load saved weights from disk:========================================#
         if opt.continue_train or opt.load_pretrained:
@@ -253,9 +252,9 @@ class Vid2VidModelD(Model, ABC):
         return loss_G, loss_D, loss_D_T, t_scales_act
 
     def save(self, label):
-        self.save_network(self.netD, 'D', label, self.gpu_ids)         
+        save_network(self.netD, 'D', label, self.save_dir)
         for s in range(self.opt.n_scales_temporal):
-            self.save_network(getattr(self, 'netD_T'+str(s)), 'D_T'+str(s), label, self.gpu_ids)
+            save_network(getattr(self, 'netD_T'+str(s)), 'D_T'+str(s), label, self.save_dir)
 
 
 # get temporally subsampled frames for real/fake sequences

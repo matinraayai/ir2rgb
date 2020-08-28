@@ -7,9 +7,6 @@ from .networks import get_grid
 
 
 class Model(torch.nn.Module, ABC):
-    @abstractmethod
-    def __str__(self):
-        return 'BaseModel'
 
     def __init__(self, opt):
         super(Model, self).__init__()
@@ -17,37 +14,16 @@ class Model(torch.nn.Module, ABC):
         self.Tensor = torch.cuda.FloatTensor if opt.gpu_ids else torch.Tensor
         self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)
 
-    # @abstractmethod
-    # def test(self):
-    #     pass
+    @abstractmethod
+    def __str__(self):
+        return ''
 
     @abstractmethod
     def save(self, label):
         pass
 
-    # helper saving function that can be used by subclasses
-    def save_network(self, network, network_label, epoch_label, gpu_ids):
-        save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
-        save_path = os.path.join(self.save_dir, save_filename)
-        torch.save(network.state_dict(), save_path)
-        if len(gpu_ids) and torch.cuda.is_available():
-            network.cuda(gpu_ids[0])
-
-    def resolve_version(self):
-        import torch._utils
-        try:
-            torch._utils._rebuild_tensor_v2
-        except AttributeError:
-            def _rebuild_tensor_v2(storage, storage_offset, size, stride, requires_grad, backward_hooks):
-                tensor = torch._utils._rebuild_tensor(storage, storage_offset, size, stride)
-                tensor.requires_grad = requires_grad
-                tensor._backward_hooks = backward_hooks
-                return tensor
-            torch._utils._rebuild_tensor_v2 = _rebuild_tensor_v2
-
     # helper loading function that can be used by subclasses
-    def load_network(self, network, network_label, epoch_label, save_dir=''):        
-        self.resolve_version()    
+    def load_network(self, network, network_label, epoch_label, save_dir=''):
         save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
         if not save_dir:
             save_dir = self.save_dir
@@ -57,7 +33,6 @@ class Model(torch.nn.Module, ABC):
             if 'G0' in network_label:
                 raise('Generator must exist!')
         else:
-            #network.load_state_dict(torch.load(save_path))
             try:
                 network.load_state_dict(torch.load(save_path))
             except:   
@@ -67,9 +42,7 @@ class Model(torch.nn.Module, ABC):
                 ### printout layers in pretrained model
                 initialized = set()                    
                 for k, v in pretrained_dict.items():                      
-                    initialized.add(k.split('.')[0])                         
-                #print('pretrained model has following layers: ')
-                #print(sorted(initialized))                
+                    initialized.add(k.split('.')[0])
 
                 try:
                     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}                    
@@ -92,18 +65,7 @@ class Model(torch.nn.Module, ABC):
                     print(sorted(not_initialized))
                     network.load_state_dict(model_dict)                  
 
-    def concat(self, tensors, dim=0):
-        if tensors[0] is not None and tensors[1] is not None:
-            if isinstance(tensors[0], list):                
-                tensors_cat = []
-                for i in range(len(tensors[0])):                    
-                    tensors_cat.append(self.concat([tensors[0][i], tensors[1][i]], dim=dim))                
-                return tensors_cat
-            return torch.cat([tensors[0], tensors[1]], dim=dim)
-        elif tensors[0] is not None:
-            return tensors[0]
-        else:
-            return tensors[1]
+
 
     def build_pyr(self, tensor, nearest=False):
         """
@@ -138,9 +100,9 @@ class Model(torch.nn.Module, ABC):
     def get_edges(self, t):
         edge = torch.cuda.ByteTensor(t.size()).zero_()
         edge[:, :, :, :, 1:] = edge[:, :, :, :, 1:] | (t[:, :, :, :, 1:] != t[:, :, :, :, :-1])
-        edge[:, :, :, :, :-1] = edge[:,:,:,:,:-1] | (t[:,:,:,:,1:] != t[:,:,:,:,:-1])
-        edge[:, :, :, 1:, :] = edge[:,:,:,1:,:] | (t[:,:,:,1:,:] != t[:,:,:,:-1,:])
-        edge[:,:,:,:-1,:] = edge[:,:,:,:-1,:] | (t[:,:,:,1:,:] != t[:,:,:,:-1,:])
+        edge[:, :, :, :, :-1] = edge[:, :, :, :, :-1] | (t[:, :, :, :, 1:] != t[:, :, :, :, :-1])
+        edge[:, :, :, 1:, :] = edge[:, :, :, 1:, :] | (t[:, :, :, 1:, :] != t[:, :, :, :-1, :])
+        edge[:, :, :, :-1, :] = edge[:, :, :, :-1, :] | (t[:, :, :, 1:, :] != t[:, :, :, :-1, :])
         return edge.float()       
         
     def update_learning_rate(self, epoch, model):        

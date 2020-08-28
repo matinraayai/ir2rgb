@@ -371,6 +371,4 @@ def create_dataloader(opt: Namespace) -> data.DataLoader:
     data_loader = data.DataLoader(dataset, batch_size=opt.batch_size,
                                   shuffle=not opt.serial_batches,
                                   num_workers=opt.dataloader_threads)
-
-    print("dataset [{:s}] was created.".format(dataset))
     return data_loader

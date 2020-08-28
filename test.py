@@ -7,7 +7,7 @@ from collections import OrderedDict
 from torch.autograd import Variable
 from options.test_options import TestOptions
 from data.dataset import create_dataloader
-from models.models import create_model
+from models.models import prepare_models
 import util.util as util
 from util.visualizer import Visualizer
 from util import html
@@ -24,7 +24,7 @@ if opt.dataset_mode == 'temporal':
 
 data_loader = create_dataloader(opt)
 # dataset = data_loader.load_data()
-model = create_model(opt)
+model = prepare_models(opt)
 visualizer = Visualizer(opt)
 input_nc = 1 if opt.label_nc != 0 else opt.input_nc
 

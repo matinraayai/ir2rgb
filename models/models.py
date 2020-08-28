@@ -14,21 +14,22 @@ def lcm(a, b):
     return abs(a * b) / gcd(a, b) if a and b else 0
 
 
-def wrap_model(opt, modelG, modelD, flowNet):
+def wrap_model(opt, generator, discriminator, flow_net):
     if opt.gen_gpus == len(opt.gpu_ids):
-        modelG = myModel(opt, modelG)
-        modelD = myModel(opt, modelD)
-        flowNet = myModel(opt, flowNet)
+        generator = myModel(opt, generator)
+        discriminator = myModel(opt, discriminator)
+        flow_net = myModel(opt, flow_net)
     else:
         if opt.batch_size == 1:
             gpu_split_id = opt.gen_gpus + 1
-            modelG = nn.DataParallel(modelG, device_ids=opt.gpu_ids[0:1])                
+            generator = nn.DataParallel(generator, device_ids=opt.gpu_ids[0:1])
         else:
             gpu_split_id = opt.gen_gpus
-            modelG = nn.DataParallel(modelG, device_ids=opt.gpu_ids[:gpu_split_id])
-        modelD = nn.DataParallel(modelD, device_ids=[opt.gpu_ids[0]] + opt.gpu_ids[gpu_split_id:])
-        flowNet = nn.DataParallel(flowNet, device_ids=[opt.gpu_ids[0]] + opt.gpu_ids[gpu_split_id:])
-    return modelG, modelD, flowNet
+            generator = nn.DataParallel(generator, device_ids=opt.gpu_ids[:gpu_split_id])
+        discriminator = nn.DataParallel(discriminator, device_ids=[opt.gpu_ids[0]] + opt.gpu_ids[gpu_split_id:])
+        flow_net = nn.DataParallel(flow_net, device_ids=[opt.gpu_ids[0]] + opt.gpu_ids[gpu_split_id:])
+    return generator, discriminator, flow_net
+
 
 class myModel(nn.Module):
     def __init__(self, opt, model):        
@@ -36,13 +37,13 @@ class myModel(nn.Module):
         self.opt = opt
         self.module = model
         self.model = nn.DataParallel(model, device_ids=opt.gpu_ids)
-        self.bs_per_gpu = int(np.ceil(float(opt.batch_size) / len(opt.gpu_ids))) # batch size for each GPU
+        self.bs_per_gpu = int(np.ceil(float(opt.batch_size) / len(opt.gpu_ids)))  # batch size for each GPU
         self.pad_bs = self.bs_per_gpu * len(opt.gpu_ids) - opt.batch_size
 
     def forward(self, *inputs, **kwargs):
         inputs = self.add_dummy_to_tensor(inputs, self.pad_bs)
         outputs = self.model(*inputs, **kwargs, dummy_bs=self.pad_bs)
-        if self.pad_bs == self.bs_per_gpu: # gpu 0 does 0 batch but still returns 1 batch
+        if self.pad_bs == self.bs_per_gpu:  # gpu 0 does 0 batch but still returns 1 batch
             return self.remove_dummy_from_tensor(outputs, 1)
         return outputs        
 
@@ -57,7 +58,8 @@ class myModel(nn.Module):
         return tensors
 
     def remove_dummy_from_tensor(self, tensors, remove_size=0):
-        if remove_size == 0 or tensors is None: return tensors
+        if remove_size == 0 or tensors is None:
+            return tensors
         if type(tensors) == list or type(tensors) == tuple:
             return [self.remove_dummy_from_tensor(tensor, remove_size) for tensor in tensors]    
         
@@ -66,7 +68,7 @@ class myModel(nn.Module):
         return tensors
 
 
-def create_model(opt):
+def prepare_models(opt):
     """
     Initializes the networks in the GAN for both training and testing using the
     commandline parameters passed to the script. Converts the model to float16 if
@@ -75,34 +77,31 @@ def create_model(opt):
     @return (Generator, Discriminator, Flow Network) if opt.train is True, else
     only the Generator network.
     """
-    print("======================Creating Models=================================")
     if not opt.debug:
         torch.backends.cudnn.benchmark = True
-    print(f"Name of the model: {opt.model}")
     if opt.model == 'vid2vid':
-        from .vid2vid_model_G import Vid2VidModelG
-        modelG = Vid2VidModelG(opt)
+        from .generator import Vid2VidGenerator
+        generator = Vid2VidGenerator(opt)
         if opt.is_train:
-            from .vid2vid_model_D import Vid2VidModelD
-            modelD = Vid2VidModelD(opt)
+            from .discriminator import Vid2VidModelD
+            discriminator = Vid2VidModelD(opt)
     elif opt.model == 'vid2vidRCNN':
         from .vid2vidRCNN_model_G import Vid2VidRCNNModelG
-        modelG = Vid2VidRCNNModelG(opt)
+        generator = Vid2VidRCNNModelG(opt)
         if opt.is_train:
             from .vid2vidRCNN_model_D import Vid2VidRCNNModelD
-            modelD = Vid2VidRCNNModelD(opt)
+            discriminator = Vid2VidRCNNModelD(opt)
     else:
-        raise ValueError("Model [%s] not recognized." % opt.model)
+        raise ValueError(f"Model {opt.model} not recognized.")
 
     if opt.is_train:
         from .flownet import FlowNet
-        flowNet = FlowNet(opt)
+        flow_net = FlowNet(opt)
     
     if opt.is_train and not opt.fp16:
-        outputs = wrap_model(opt, modelG, modelD, flowNet)
+        outputs = wrap_model(opt, generator, discriminator, flow_net)
     else:
-        outputs = modelG
-    print("======================Models Created==================================")
+        outputs = generator
     return outputs
 
 
@@ -112,7 +111,7 @@ def create_optimizer(opt, models):
     if opt.fp16:
         from apex import amp
         for s in range(opt.n_scales_temporal):
-            optimizer_D_T.append(getattr(modelD, 'optimizer_D_T'+str(s)))
+            optimizer_D_T.append(getattr(modelD, 'optimizer_D_T' + str(s)))
         modelG, optimizer_G = amp.initialize(modelG, modelG.optimizer_G, opt_level='O1')
         modelD, optimizers_D = amp.initialize(modelD, [modelD.optimizer_D] + optimizer_D_T, opt_level='O1')
         optimizer_D, optimizer_D_T = optimizers_D[0], optimizers_D[1:]        

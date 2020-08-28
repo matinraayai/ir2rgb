@@ -126,7 +126,10 @@ class CommonOptions:
             self.add_arguments()
             self.opt = self.parser.parse_args()
         self.opt.is_train = self.is_train   # train or test
-        
+        if self.opt.debug:
+            self.opt.display_freq = 1
+            self.opt.print_freq = 1
+            self.opt.dataloader_threads = 1
         self.opt.fg_labels = self.parse_str(self.opt.fg_labels)
         self.opt.gpu_ids = self.parse_str(self.opt.gpu_ids)
         if self.opt.gen_gpus == -1:
