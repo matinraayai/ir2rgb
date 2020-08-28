@@ -2,48 +2,43 @@ from abc import ABC
 
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 from .networks import Vgg19
 
 
 class GANLoss(nn.Module, ABC):
-    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0, tensor=torch.FloatTensor):
+    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0):
         super(GANLoss, self).__init__()
+        # Label to fill the target variables with, e.g. 0 or 1
         self.real_label = target_real_label
         self.fake_label = target_fake_label
-        self.real_label_var = None
-        self.fake_label_var = None
+        # Cached Target variables for calculating the GAN loss
+        self.real_target = None
+        self.fake_target = None
         self.loss = nn.MSELoss() if use_lsgan else nn.BCELoss()
-        self.Tensor = tensor
 
     def get_target_tensor(self, x, is_target_real):
-        target_tensor = None
-        label_var = self.real_label_var if is_target_real else self.fake_label_var
-        gpu_id = x.get_device()
-        create_label = (label_var is None) or (label_var.numel() != x.numel())
-        if is_target_real:
-            if create_label:
-                real_tensor = self.Tensor(x.size()).cuda(gpu_id).fill_(self.real_label)
-                self.real_label_var = Variable(real_tensor, requires_grad=False)
-            target_tensor = self.real_label_var
-        else:
-            if create_label:
-                fake_tensor = self.Tensor(x.size()).cuda(gpu_id).fill_(self.fake_label)
-                self.fake_label_var = Variable(fake_tensor, requires_grad=False)
-            target_tensor = self.fake_label_var
-        return target_tensor
+        target = self.real_target if is_target_real else self.fake_target
+        label = self.real_label if is_target_real else self.fake_label
+        if target is None or target.numel() != x.numel():
+            target = torch.zeros(size=x.size(), dtype=x.dtype, device=x.device).fill_(label)
+            # Cache the targets for future calculations
+            if is_target_real:
+                self.real_target = target
+            else:
+                self.fake_target = target
+        return target
 
-    def forward(self, input, target_is_real):
-        if isinstance(input[0], list):
+    def forward(self, x, label):
+        if isinstance(x[0], list):
             loss = 0
-            for input_i in input:
+            for input_i in x:
                 pred = input_i[-1]
-                target_tensor = self.get_target_tensor(pred, target_is_real)
+                target_tensor = self.get_target_tensor(pred, label)
                 loss += self.loss(pred, target_tensor)
             return loss
         else:
-            target_tensor = self.get_target_tensor(input[-1], target_is_real)
-            return self.loss(input[-1], target_tensor)
+            target_tensor = self.get_target_tensor(x[-1], label)
+            return self.loss(x[-1], target_tensor)
 
 
 class VGGLoss(nn.Module):
