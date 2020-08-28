@@ -35,28 +35,20 @@ class Vid2VidRCNNModelD(Model):
             self.input_nc += 1
         netD_input_nc = self.input_nc + opt.output_nc
 
-        self.netD = networks.define_D(netD_input_nc, opt.first_layer_dis_filters, opt.n_layers_D, opt.norm,
-                                      opt.num_D, not opt.no_ganFeat, gpu_ids=self.gpu_ids)
+        self.netD = networks.build_discriminator_module(netD_input_nc, opt.first_layer_dis_filters, opt.n_layers_D, opt.norm,
+                                                        opt.num_D, not opt.no_ganFeat)
 
         if opt.add_face_disc:
-            self.netD_f = networks.define_D(netD_input_nc, opt.first_layer_dis_filters,
-                                            opt.n_layers_D, opt.norm,
-                                            max(1, opt.num_D - 2),
-                                            not opt.no_ganFeat,
-                                            gpu_ids=self.gpu_ids)
+            self.netD_f = networks.build_discriminator_module(netD_input_nc, opt.first_layer_dis_filters, opt.n_layers_D,
+                                                              opt.norm, max(1, opt.num_D - 2), not opt.no_ganFeat)
 
         # Temporal Discriminator:==============================================#
         netD_input_nc = opt.output_nc * opt.n_frames_D + 2 * (opt.n_frames_D-1)
         for s in range(opt.n_scales_temporal):
             setattr(self,
                     'netD_T' + str(s),
-                    networks.define_D(netD_input_nc,
-                                      opt.first_layer_dis_filters,
-                                      opt.n_layers_D,
-                                      opt.norm,
-                                      opt.num_D,
-                                      not opt.no_ganFeat,
-                                      gpu_ids=self.gpu_ids))
+                    networks.build_discriminator_module(netD_input_nc, opt.first_layer_dis_filters, opt.n_layers_D, opt.norm,
+                                                        opt.num_D, not opt.no_ganFeat))
         print("Discriminator initialized.")
 
         # Load saved weights from disk:========================================#

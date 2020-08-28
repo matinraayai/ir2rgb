@@ -8,7 +8,7 @@ from abc import ABC
 import torch
 import util.util as util
 from .base_model import Model
-from . import networks
+from . import networks, loss
 from .utils import save_network
 
 
@@ -38,21 +38,16 @@ class Vid2VidModelD(Model, ABC):
             self.input_nc += 1
         netD_input_nc = self.input_nc + opt.output_nc
 
-        self.netD = networks.define_D(netD_input_nc, opt.first_layer_dis_filters, opt.n_layers_D, opt.norm,
-                                      opt.num_D, not opt.no_ganFeat, gpu_ids=self.gpu_ids)
+        self.netD = networks.build_discriminator_module(netD_input_nc, opt.first_layer_dis_filters, opt.n_layers_D, opt.norm,
+                                                        opt.num_D, not opt.no_ganFeat)
 
         # Temporal Discriminator:==============================================#
         netD_input_nc = opt.output_nc * opt.n_frames_D + 2 * (opt.n_frames_D-1)
         for s in range(opt.n_scales_temporal):
             setattr(self,
                     'netD_T' + str(s),
-                    networks.define_D(netD_input_nc,
-                                      opt.first_layer_dis_filters,
-                                      opt.n_layers_D,
-                                      opt.norm,
-                                      opt.num_D,
-                                      not opt.no_ganFeat,
-                                      gpu_ids=self.gpu_ids))
+                    networks.build_discriminator_module(netD_input_nc, opt.first_layer_dis_filters, opt.n_layers_D, opt.norm,
+                                                        opt.num_D, not opt.no_ganFeat))
 
         # Load saved weights from disk:========================================#
         if opt.continue_train or opt.load_pretrained:
@@ -64,12 +59,12 @@ class Vid2VidModelD(Model, ABC):
                                   opt.load_pretrained)
 
         # Loss functions:======================================================#
-        self.criterionGAN = networks.GANLoss(opt.gan_mode, tensor=self.Tensor)
-        self.criterionFlow = networks.MaskedL1Loss()
-        self.criterionWarp = networks.MaskedL1Loss()
+        self.criterionGAN = loss.GANLoss(opt.gan_mode, tensor=self.Tensor)
+        self.criterionFlow = loss.MaskedL1Loss()
+        self.criterionWarp = loss.MaskedL1Loss()
         self.criterionFeat = torch.nn.L1Loss()
         if not opt.no_vgg:
-            self.criterionVGG = networks.VGGLoss(self.gpu_ids[0])
+            self.criterionVGG = loss.VGGLoss(self.gpu_ids[0])
 
         self.loss_names = ['G_VGG', 'G_GAN', 'G_GAN_Feat',
                            'D_real', 'D_fake',

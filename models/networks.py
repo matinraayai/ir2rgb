@@ -7,9 +7,27 @@ import torch
 import torch.nn as nn
 from torch.nn import init
 import functools
-from torch.autograd import Variable
+
 import numpy as np
 import copy
+
+
+def get_grid(batch_size, rows, cols, gpu_id=0, dtype=torch.float32):
+    hor = torch.linspace(-1.0, 1.0, cols)
+    hor.requires_grad = False
+    hor = hor.view(1, 1, 1, cols)
+    hor = hor.expand(batch_size, 1, rows, cols)
+    ver = torch.linspace(-1.0, 1.0, rows)
+    ver.requires_grad = False
+    ver = ver.view(1, 1, rows, 1)
+    ver = ver.expand(batch_size, 1, rows, cols)
+
+    t_grid = torch.cat([hor, ver], 1)
+    t_grid.requires_grad = False
+
+    if dtype == torch.float16:
+        t_grid = t_grid.half()
+    return t_grid.cuda(gpu_id)
 
 
 def weights_init(m: nn.Module) -> None:
@@ -32,7 +50,7 @@ def get_norm_layer(norm_type: str = 'instance'):
     return norm_layer
 
 
-def build_generator(input_nc, output_nc, prev_output_nc, ngf, model_name, n_downsampling, norm, scale, opt=()):
+def build_generator_module(input_nc, output_nc, prev_output_nc, ngf, model_name, n_downsampling, norm, scale, opt=()):
     generator = None
     norm_layer = get_norm_layer(norm_type=norm)
 
@@ -47,11 +65,11 @@ def build_generator(input_nc, output_nc, prev_output_nc, ngf, model_name, n_down
         generator = Local_with_z(input_nc, output_nc, opt.feat_num, ngf, n_downsampling, opt.gen_blocks,
                                  opt.n_local_enhancers, opt.n_blocks_local, norm_layer)
     elif model_name == 'composite':
-        generator = CompositeGenerator(opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling,
-                                       opt.gen_blocks, opt.fg, opt.no_flow, norm_layer)
+        generator = CompositeGeneratorModule(input_nc, output_nc, prev_output_nc, ngf, n_downsampling, opt.gen_blocks,
+                                             opt.fg, opt.no_flow, norm_layer)
     elif model_name == 'composite-local':
-        generator = CompositeLocalGenerator(opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling,
-                                            opt.n_blocks_local, opt.fg, opt.no_flow, norm_layer, scale=scale)
+        generator = CompositeLocalGeneratorModule(input_nc, output_nc, prev_output_nc, ngf, n_downsampling,
+                                                  opt.n_blocks_local, opt.fg, opt.no_flow, norm_layer, scale=scale)
     elif model_name == 'encoder':
         generator = Encoder(input_nc, output_nc, ngf, n_downsampling, norm_layer)
     else:
@@ -60,40 +78,20 @@ def build_generator(input_nc, output_nc, prev_output_nc, ngf, model_name, n_down
     return generator
 
 
-def build_discriminator(input_nc, ndf, n_layers_D, norm='instance', num_D=1, get_interm_feat=False):
+def build_discriminator_module(input_nc, ndf, n_layers_D, norm='instance', num_D=1, get_interm_feat=False):
     norm_layer = get_norm_layer(norm_type=norm)   
     discriminator = MultiscaleDiscriminator(input_nc, ndf, n_layers_D, norm_layer, num_D, get_interm_feat)
     discriminator.apply(weights_init)
     return discriminator
 
 
-def get_grid(batch_size, rows, cols, gpu_id=0, dtype=torch.float32):
-    hor = torch.linspace(-1.0, 1.0, cols)
-    hor.requires_grad = False
-    hor = hor.view(1, 1, 1, cols)
-    hor = hor.expand(batch_size, 1, rows, cols)
-    ver = torch.linspace(-1.0, 1.0, rows)
-    ver.requires_grad = False
-    ver = ver.view(1, 1, rows, 1)
-    ver = ver.expand(batch_size, 1, rows, cols)
-
-    t_grid = torch.cat([hor, ver], 1)
-    t_grid.requires_grad = False
-
-    if dtype == torch.float16:
-        t_grid = t_grid.half()
-    return t_grid.cuda(gpu_id)
-
-
-class BaseNetwork(nn.Module):
+class BaseCompositeGeneratorModule(nn.Module, ABC):
     def __init__(self):
-        super(BaseNetwork, self).__init__()
+        super(BaseCompositeGeneratorModule, self).__init__()
 
-    def grid_sample(self, input1, input2, fp16):
-        if fp16:  # not sure if it's necessary
-            return torch.nn.functional.grid_sample(input1.float(), input2.float(), mode='bilinear', padding_mode='border').half()
-        else:
-            return torch.nn.functional.grid_sample(input1, input2, mode='bilinear', padding_mode='border')
+    @staticmethod
+    def grid_sample(input1, input2):
+        return torch.nn.functional.grid_sample(input1, input2, mode='bilinear', padding_mode='border')
 
     def resample(self, image, flow):        
         b, c, h, w = image.size()        
@@ -101,31 +99,33 @@ class BaseNetwork(nn.Module):
             self.grid = get_grid(b, h, w, gpu_id=flow.get_device(), dtype=flow.dtype)            
         flow = torch.cat([flow[:, 0:1, :, :] / ((w - 1.0) / 2.0), flow[:, 1:2, :, :] / ((h - 1.0) / 2.0)], dim=1)        
         final_grid = (self.grid + flow).permute(0, 2, 3, 1).cuda(image.get_device())
-        output = self.grid_sample(image, final_grid, self.fp16)
+        output = self.grid_sample(image, final_grid)
         return output
 
 
-class CompositeGenerator(BaseNetwork, ABC):
-    def __init__(self, opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling, n_blocks, use_fg_model=False,
+class CompositeGeneratorModule(BaseCompositeGeneratorModule, ABC):
+    def __init__(self,
+                 input_nc: int, output_nc: int, prev_output_nc: int,
+                 ngf, n_downsampling, n_blocks, use_fg_model=False,
                  no_flow=False, norm_layer=nn.BatchNorm2d, padding_type='reflect'):
-        assert(n_blocks >= 0)
-        super(CompositeGenerator, self).__init__()
-        self.fp16 = opt.fp16
-        self.n_downsampling = n_downsampling
+        super(CompositeGeneratorModule, self).__init__()
         self.use_fg_model = use_fg_model
         self.no_flow = no_flow
         activation = nn.ReLU(True)
         
-        if use_fg_model:
+        if self.use_fg_model:
             # individial image generation
             ngf_indv = ngf // 2 if n_downsampling > 2 else ngf
             indv_nc = input_nc
-            indv_down = [nn.ReflectionPad2d(3), nn.Conv2d(indv_nc, ngf_indv, kernel_size=7, padding=0), 
-                         norm_layer(ngf_indv), activation]        
+            indv_down = [nn.ReflectionPad2d(3),
+                         nn.Conv2d(indv_nc, ngf_indv, kernel_size=7, padding=0),
+                         norm_layer(ngf_indv),
+                         activation]
             for i in range(n_downsampling):
                 mult = 2**i
                 indv_down += [nn.Conv2d(ngf_indv*mult, ngf_indv*mult*2, kernel_size=3, stride=2, padding=1), 
-                              norm_layer(ngf_indv*mult*2), activation]
+                              norm_layer(ngf_indv*mult*2),
+                              activation]
 
             indv_res = []
             mult = 2**n_downsampling
@@ -223,11 +223,10 @@ class CompositeGenerator(BaseNetwork, ABC):
         return img_final, flow, weight, img_raw, img_feat, flow_feat, img_fg_feat
 
 
-class CompositeLocalGenerator(BaseNetwork):
-    def __init__(self, opt, input_nc, output_nc, prev_output_nc, ngf, n_downsampling, n_blocks_local, use_fg_model=False, no_flow=False,
-                 norm_layer=nn.BatchNorm2d, padding_type='reflect', scale=1):        
-        super(CompositeLocalGenerator, self).__init__()                
-        self.fp16 = opt.fp16
+class CompositeLocalGeneratorModule(BaseCompositeGeneratorModule):
+    def __init__(self, input_nc, output_nc, prev_output_nc, ngf, n_downsampling, n_blocks_local, use_fg_model=False,
+                 no_flow=False, norm_layer=nn.BatchNorm2d, padding_type='reflect', scale=1):
+        super(CompositeLocalGeneratorModule, self).__init__()
         self.use_fg_model = use_fg_model
         self.no_flow = no_flow
         self.scale = scale    
@@ -236,8 +235,12 @@ class CompositeLocalGenerator(BaseNetwork):
         if use_fg_model:
             ### individial image generation        
             ngf_indv = ngf // 2 if n_downsampling > 2 else ngf
-            indv_down = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf_indv, kernel_size=7, padding=0), norm_layer(ngf_indv), activation,
-                         nn.Conv2d(ngf_indv, ngf_indv*2, kernel_size=3, stride=2, padding=1), norm_layer(ngf_indv*2), activation]        
+            indv_down = [nn.ReflectionPad2d(3),
+                         nn.Conv2d(input_nc, ngf_indv, kernel_size=7, padding=0),
+                         norm_layer(ngf_indv), activation,
+                         nn.Conv2d(ngf_indv, ngf_indv*2, kernel_size=3, stride=2, padding=1),
+                         norm_layer(ngf_indv*2),
+                         activation]
 
             indv_up = []
             for i in range(n_blocks_local):
@@ -716,153 +719,6 @@ class NLayerDiscriminator(nn.Module):
             return res[1:]
         else:
             return self.model(input)        
-
-
-##############################################################################
-# Losses
-##############################################################################
-class GANLoss(nn.Module):
-    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0,
-                 tensor=torch.FloatTensor):
-        super(GANLoss, self).__init__()
-        self.real_label = target_real_label
-        self.fake_label = target_fake_label
-        self.real_label_var = None
-        self.fake_label_var = None
-        self.Tensor = tensor        
-        if use_lsgan:
-            self.loss = nn.MSELoss()
-        else:
-            self.loss = nn.BCELoss()
-
-    def get_target_tensor(self, input, target_is_real):
-        target_tensor = None        
-        gpu_id = input.get_device()
-        if target_is_real:
-            create_label = ((self.real_label_var is None) or
-                            (self.real_label_var.numel() != input.numel()))
-            if create_label:
-                real_tensor = self.Tensor(input.size()).cuda(gpu_id).fill_(self.real_label)
-                self.real_label_var = Variable(real_tensor, requires_grad=False)
-            target_tensor = self.real_label_var
-        else:
-            create_label = ((self.fake_label_var is None) or
-                            (self.fake_label_var.numel() != input.numel()))
-            if create_label:
-                fake_tensor = self.Tensor(input.size()).cuda(gpu_id).fill_(self.fake_label)
-                self.fake_label_var = Variable(fake_tensor, requires_grad=False)
-            target_tensor = self.fake_label_var
-        return target_tensor
-
-    def __call__(self, input, target_is_real):
-        if isinstance(input[0], list):
-            loss = 0
-            for input_i in input:
-                pred = input_i[-1]
-                target_tensor = self.get_target_tensor(pred, target_is_real)                
-                loss += self.loss(pred, target_tensor)
-            return loss
-        else:            
-            target_tensor = self.get_target_tensor(input[-1], target_is_real)
-            return self.loss(input[-1], target_tensor)
-
-
-class VGGLoss(nn.Module):
-    def __init__(self, gpu_id=0):
-        super(VGGLoss, self).__init__()        
-        self.vgg = Vgg19().cuda(gpu_id)
-        self.criterion = nn.L1Loss()
-        self.weights = [1.0/32, 1.0/16, 1.0/8, 1.0/4, 1.0]
-        self.downsample = nn.AvgPool2d(2, stride=2, count_include_pad=False)
-
-    def forward(self, x, y):
-        while x.size()[3] > 1024:
-            x, y = self.downsample(x), self.downsample(y)
-        x_vgg, y_vgg = self.vgg(x), self.vgg(y)
-        loss = 0
-        for i in range(len(x_vgg)):
-            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].detach())        
-        return loss
-
-
-class RCNNLoss(nn.Module):
-    def __init__(self, num_classes):
-        super(RCNNLoss, self).__init__()
-        import torchvision
-        from torchvision import models
-        from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-        # load an instance segmentation model pre-trained pre-trained on COCO
-        self.model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
-        # get number of input features for the classifier
-        in_features = self.model.roi_heads.box_predictor.cls_score.in_features
-        # replace the pre-trained head with a new one
-        self.model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-        self.model.load_state_dict(torch.load("checkpoints/RCNN/rcnn_checkpoint_epoch_40.pt"))
-        print("Finished loading the RCNN")
-
-    def forward(self, fake_B, annotation):
-        fake_B_reshaped = fake_B.reshape(fake_B.shape[1], fake_B.shape[2], fake_B.shape[3])
-        labels = [2] + [1] * (len(annotation) - 1)
-        labels = torch.tensor(labels, device=annotation.device, dtype=torch.int64)
-
-        target = {}
-        target["boxes"] = annotation.reshape(annotation.shape[0], annotation.shape[3])
-        target["labels"] = labels
-        images = [fake_B_reshaped]
-        target = [{k: v.to(annotation.device) for k, v in target.items()}] 
-        loss_dict = self.model(images, target)
-        losses = sum(loss for loss in loss_dict.values())
-
-
-        return losses
-
-
-class CrossEntropyLoss(nn.Module):
-    def __init__(self, label_nc):
-        super(CrossEntropyLoss, self).__init__()
-        self.softmax = nn.LogSoftmax(dim=1)
-        self.criterion = nn.NLLLoss2d()
-
-    def forward(self, output, label):
-        label = label.long().max(1)[1]        
-        output = self.softmax(output)
-        return self.criterion(output, label)
-
-class MaskedL1Loss(nn.Module):
-    def __init__(self):
-        super(MaskedL1Loss, self).__init__()
-        self.criterion = nn.L1Loss()
-
-    def forward(self, input, target, mask):        
-        mask = mask.expand(-1, input.size()[1], -1, -1)
-        loss = self.criterion(input * mask, target * mask)
-        return loss
-
-
-class MultiscaleL1Loss(nn.Module):
-    def __init__(self, scale=5):
-        super(MultiscaleL1Loss, self).__init__()
-        self.criterion = nn.L1Loss()
-        self.downsample = nn.AvgPool2d(2, stride=2, count_include_pad=False)
-        #self.weights = [0.5, 1, 2, 8, 32]
-        self.weights = [1, 0.5, 0.25, 0.125, 0.125]
-        self.weights = self.weights[:scale]
-
-    def forward(self, input, target, mask=None):
-        loss = 0
-        if mask is not None:
-            mask = mask.expand(-1, input.size()[1], -1, -1)
-        for i in range(len(self.weights)):
-            if mask is not None:                
-                loss += self.weights[i] * self.criterion(input * mask, target * mask)
-            else:
-                loss += self.weights[i] * self.criterion(input, target)
-            if i != len(self.weights)-1:
-                input = self.downsample(input)
-                target = self.downsample(target)
-                if mask is not None:
-                    mask = self.downsample(mask)
-        return loss
 
 
 class Vgg19(nn.Module):

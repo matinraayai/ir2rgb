@@ -48,7 +48,8 @@ class myModel(nn.Module):
         return outputs        
 
     def add_dummy_to_tensor(self, tensors, add_size=0):        
-        if add_size == 0 or tensors is None: return tensors
+        if add_size == 0 or tensors is None:
+            return tensors
         if type(tensors) == list or type(tensors) == tuple:
             return [self.add_dummy_to_tensor(tensor, add_size) for tensor in tensors]    
                 
@@ -99,7 +100,8 @@ def prepare_models(opt):
         flow_net = FlowNet(opt)
     
     if opt.is_train and not opt.fp16:
-        outputs = wrap_model(opt, generator, discriminator, flow_net)
+        # outputs = wrap_model(opt, generator, discriminator, flow_net)
+        outputs = (generator.cuda(), discriminator.cuda(), flow_net.cuda())
     else:
         outputs = generator
     return outputs
@@ -117,10 +119,10 @@ def create_optimizer(opt, models):
         optimizer_D, optimizer_D_T = optimizers_D[0], optimizers_D[1:]        
         modelG, modelD, flownet = wrap_model(opt, modelG, modelD, flowNet)
     else:        
-        optimizer_G = modelG.module.optimizer_G
-        optimizer_D = modelD.module.optimizer_D        
+        optimizer_G = modelG.optimizer_G
+        optimizer_D = modelD.optimizer_D
         for s in range(opt.n_scales_temporal):
-            optimizer_D_T.append(getattr(modelD.module, 'optimizer_D_T'+str(s)))
+            optimizer_D_T.append(getattr(modelD, 'optimizer_D_T'+str(s)))
     return modelG, modelD, flowNet, optimizer_G, optimizer_D, optimizer_D_T
 
 
@@ -165,10 +167,10 @@ def save_models(opt, epoch, epoch_iter, total_steps, visualizer, iter_path, mode
     else:
         if epoch % opt.save_epoch_freq == 0:
             visualizer.vis_print('saving the model at the end of epoch %d, iters %d' % (epoch, total_steps))        
-            modelG.module.save('latest')
-            modelD.module.save('latest')
-            modelG.module.save(epoch)
-            modelD.module.save(epoch)
+            modelG.save('latest')
+            modelD.save('latest')
+            modelG.save(epoch)
+            modelD.save(epoch)
             np.savetxt(iter_path, (epoch + 1, 0), delimiter=',', fmt='%d')
 
 def update_models(opt, epoch, modelG, modelD, data_loader):

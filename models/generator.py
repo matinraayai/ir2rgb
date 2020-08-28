@@ -23,18 +23,16 @@ class Vid2VidGenerator(Model, ABC):
 
         input_nc = opt.label_nc if opt.label_nc != 0 else opt.input_nc
         netG_input_nc = input_nc * opt.n_input_gen_frames
-        if opt.use_instance:
-            netG_input_nc += opt.n_input_gen_frames
+
         prev_output_nc = (opt.n_input_gen_frames - 1) * opt.output_nc
 
-        self.netG0 = networks.define_G(netG_input_nc, opt.output_nc, prev_output_nc, opt.first_layer_gen_filters,
-                                       opt.gen_network,
-                                       opt.gen_ds_layers, opt.norm, 0, self.opt.gpu_ids, opt)
+        self.netG0 = networks.build_generator_module(netG_input_nc, opt.output_nc, prev_output_nc, opt.first_layer_gen_filters,
+                                                     opt.gen_network, opt.gen_ds_layers, opt.norm, 0, opt)
         for s in range(1, self.n_scales):
             ngf = opt.first_layer_gen_filters // (2 ** s)
             setattr(self, 'netG' + str(s),
-                    networks.define_G(netG_input_nc, opt.output_nc, prev_output_nc, ngf, opt.gen_network + 'Local',
-                                      opt.gen_ds_layers, opt.norm, s, self.opt.gpu_ids, opt))
+                    networks.build_generator_module(netG_input_nc, opt.output_nc, prev_output_nc, ngf,
+                                                    opt.gen_network + '-local', opt.gen_ds_layers, opt.norm, s, opt))
 
         # load networks
         if not opt.is_train or opt.continue_train or opt.load_pretrained:
@@ -79,7 +77,7 @@ class Vid2VidGenerator(Model, ABC):
     def __str__(self):
         return 'Vid2Vid Generator'
 
-    def encode_input(self, input_map, real_image, inst_map=None):
+    def encode_input(self, input_map, real_image):
         self.bs, tG, self.height, self.width = input_map.size()[0: 4]
         input_map = input_map.data.cuda()                
         if self.opt.label_nc != 0:                        
@@ -89,29 +87,21 @@ class Vid2VidGenerator(Model, ABC):
             input_label = input_label.scatter_(2, input_map.long(), 1.0)    
             input_map = input_label        
         input_map = Variable(input_map)
-                
-        if self.opt.use_instance:
-            inst_map = inst_map.data.cuda()            
-            edge_map = Variable(self.get_edges(inst_map))            
-            input_map = torch.cat([input_map, edge_map], dim=2)
-        
-        pool_map = None
-        if self.opt.dataset_mode == 'face':
-            pool_map = inst_map.data.cuda()
         
         # real images for training
         if real_image is not None:
             real_image = Variable(real_image.data.cuda())   
 
-        return input_map, real_image, pool_map
+        return input_map, real_image
 
-    def forward(self, input_A, input_B, inst_A, fake_B_prev, dummy_bs=0):
+    def forward(self, input_A, input_B, fake_B_prev, dummy_bs=0):
         tG = self.opt.n_input_gen_frames
         gpu_split_id = self.opt.gen_gpus + 1
         if input_A.get_device() == self.opt.gpu_ids[0]:
-            input_A, input_B, inst_A, fake_B_prev = util.remove_dummy_from_tensor([input_A, input_B, inst_A, fake_B_prev], dummy_bs)
-            if input_A.size(0) == 0: return self.return_dummy(input_A)
-        real_A_all, real_B_all, _ = self.encode_input(input_A, input_B, inst_A)        
+            input_A, input_B, fake_B_prev = util.remove_dummy_from_tensor([input_A, input_B, fake_B_prev], dummy_bs)
+            if input_A.size(0) == 0:
+                return self.return_dummy(input_A)
+        real_A_all, real_B_all = self.encode_input(input_A, input_B)
 
         is_first_frame = fake_B_prev is None
         if is_first_frame: # at the beginning of a sequence; needs to generate the first frame
@@ -139,7 +129,7 @@ class Vid2VidGenerator(Model, ABC):
 
         ### generate inputs   
         real_A_pyr = self.build_pyr(real_A_all)        
-        fake_Bs_raw, flows, weights = None, None, None            
+        fake_Bs_raw, flows, weights =    None, None, None
         
         ### sequentially generate each frame
         for t in range(n_frames_load):
@@ -230,8 +220,6 @@ class Vid2VidGenerator(Model, ABC):
             fake_B_prev = real_B[:,:(tG-1),...]            
         elif self.opt.use_single_G:        # use another model (trained on single images) to generate first frame
             fake_B_prev = None
-            if self.opt.use_instance:
-                real_A = real_A[:,:,:self.opt.label_nc,:,:]
             for i in range(tG-1):                
                 feat_map = self.get_face_features(real_B[:,i], pool_map[:,i]) if self.opt.dataset_mode == 'face' else None
                 fake_B = self.netG_i.forward(real_A[:,i], feat_map).unsqueeze(1)                
@@ -259,22 +247,22 @@ class Vid2VidGenerator(Model, ABC):
             single_path = 'checkpoints/label2city_single/'
             if opt.load_size == 512:
                 load_path = single_path + 'latest_net_G_512.pth'            
-                netG = networks.define_G(35, 3, 0, 64, 'global', 3, 'instance', 0, self.opt.gpu_ids, opt)
+                netG = networks.build_generator_module(35, 3, 0, 64, 'global', 3, 'instance', 0, opt)
             elif opt.load_size == 1024:
                 load_path = single_path + 'latest_net_G_1024.pth'
-                netG = networks.define_G(35, 3, 0, 64, 'global', 4, 'instance', 0, self.opt.gpu_ids, opt)
+                netG = networks.build_generator_module(35, 3, 0, 64, 'global', 4, 'instance', 0, opt)
             elif opt.load_size == 2048:
                 load_path = single_path + 'latest_net_G_2048.pth'
-                netG = networks.define_G(35, 3, 0, 32, 'local', 4, 'instance', 0, self.opt.gpu_ids, opt)
+                netG = networks.build_generator_module(35, 3, 0, 32, 'local', 4, 'instance', 0, opt)
             else:
                 raise ValueError('Single image generator does not exist')
         elif 'face' in self.opt.data_root:
             single_path = 'checkpoints/edge2face_single/'
             load_path = single_path + 'latest_net_G.pth' 
             opt.feat_num = 16           
-            netG = networks.define_G(15, 3, 0, 64, 'global_with_features', 3, 'instance', 0, self.opt.gpu_ids, opt)
+            netG = networks.build_generator_module(15, 3, 0, 64, 'global_with_features', 3, 'instance', 0, opt)
             encoder_path = single_path + 'latest_net_E.pth'
-            self.netE = networks.define_G(3, 16, 0, 16, 'encoder', 4, 'instance', 0, self.opt.gpu_ids)
+            self.netE = networks.build_generator_module(3, 16, 0, 16, 'encoder', 4, 'instance', 0)
             self.netE.load_state_dict(torch.load(encoder_path))
         else:
             raise ValueError('Single image generator does not exist')

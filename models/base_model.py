@@ -96,14 +96,6 @@ class Model(torch.nn.Module, ABC):
             val, idx = torch.sort(dists, dim=0)
             idx = idx[:num]
         return idx.cpu().numpy().astype(int)
-
-    def get_edges(self, t):
-        edge = torch.cuda.ByteTensor(t.size()).zero_()
-        edge[:, :, :, :, 1:] = edge[:, :, :, :, 1:] | (t[:, :, :, :, 1:] != t[:, :, :, :, :-1])
-        edge[:, :, :, :, :-1] = edge[:, :, :, :, :-1] | (t[:, :, :, :, 1:] != t[:, :, :, :, :-1])
-        edge[:, :, :, 1:, :] = edge[:, :, :, 1:, :] | (t[:, :, :, 1:, :] != t[:, :, :, :-1, :])
-        edge[:, :, :, :-1, :] = edge[:, :, :, :-1, :] | (t[:, :, :, 1:, :] != t[:, :, :, :-1, :])
-        return edge.float()       
         
     def update_learning_rate(self, epoch, model):        
         lr = self.opt.lr * (1 - (epoch - self.opt.niter) / self.opt.niter_decay)

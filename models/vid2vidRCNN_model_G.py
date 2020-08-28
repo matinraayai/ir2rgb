@@ -38,14 +38,13 @@ class Vid2VidRCNNModelG(Model):
         if opt.openpose_only:
             opt.no_flow = True     
 
-        self.netG0 = networks.define_G(netG_input_nc, opt.output_nc, prev_output_nc, opt.first_layer_gen_filters,
-                                       opt.gen_network,
-                                       opt.gen_ds_layers, opt.norm, 0, self.gpu_ids, opt)
+        self.netG0 = networks.build_generator_module(netG_input_nc, opt.output_nc, prev_output_nc, opt.first_layer_gen_filters,
+                                                     opt.gen_network, opt.gen_ds_layers, opt.norm, 0, opt)
         for s in range(1, self.n_scales):            
             ngf = opt.first_layer_gen_filters // (2**s)
-            setattr(self, 'netG'+str(s), networks.define_G(netG_input_nc, opt.output_nc, prev_output_nc, ngf,
-                                                           opt.gen_network + 'Local',
-                                                           opt.gen_ds_layers, opt.norm, s, self.gpu_ids, opt))
+            setattr(self, 'netG' + str(s), networks.build_generator_module(netG_input_nc, opt.output_nc, prev_output_nc, ngf,
+                                                                           opt.gen_network + 'Local', opt.gen_ds_layers,
+                                                                           opt.norm, s, opt))
 
         print('---------- Networks initialized -------------') 
         print('-----------------------------------------------')
@@ -103,7 +102,7 @@ class Vid2VidRCNNModelG(Model):
                 
         if self.opt.use_instance:
             inst_map = inst_map.data.cuda()            
-            edge_map = Variable(self.get_edges(inst_map))            
+            edge_map = Variable(get_edges(inst_map))
             input_map = torch.cat([input_map, edge_map], dim=2)
         
         pool_map = None
@@ -270,22 +269,22 @@ class Vid2VidRCNNModelG(Model):
             single_path = 'checkpoints/label2city_single/'
             if opt.load_size == 512:
                 load_path = single_path + 'latest_net_G_512.pth'            
-                netG = networks.define_G(35, 3, 0, 64, 'global', 3, 'instance', 0, self.gpu_ids, opt)                
+                netG = networks.build_generator_module(35, 3, 0, 64, 'global', 3, 'instance', 0, opt)
             elif opt.load_size == 1024:
                 load_path = single_path + 'latest_net_G_1024.pth'
-                netG = networks.define_G(35, 3, 0, 64, 'global', 4, 'instance', 0, self.gpu_ids, opt)                
+                netG = networks.build_generator_module(35, 3, 0, 64, 'global', 4, 'instance', 0, opt)
             elif opt.load_size == 2048:
                 load_path = single_path + 'latest_net_G_2048.pth'
-                netG = networks.define_G(35, 3, 0, 32, 'local', 4, 'instance', 0, self.gpu_ids, opt)
+                netG = networks.build_generator_module(35, 3, 0, 32, 'local', 4, 'instance', 0, opt)
             else:
                 raise ValueError('Single image generator does not exist')
         elif 'face' in self.opt.data_root:
             single_path = 'checkpoints/edge2face_single/'
             load_path = single_path + 'latest_net_G.pth' 
             opt.feat_num = 16           
-            netG = networks.define_G(15, 3, 0, 64, 'global_with_features', 3, 'instance', 0, self.gpu_ids, opt)
+            netG = networks.build_generator_module(15, 3, 0, 64, 'global_with_features', 3, 'instance', 0, opt)
             encoder_path = single_path + 'latest_net_E.pth'
-            self.netE = networks.define_G(3, 16, 0, 16, 'encoder', 4, 'instance', 0, self.gpu_ids)
+            self.netE = networks.build_generator_module(3, 16, 0, 16, 'encoder', 4, 'instance', 0)
             self.netE.load_state_dict(torch.load(encoder_path))
         else:
             raise ValueError('Single image generator does not exist')

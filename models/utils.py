@@ -21,3 +21,24 @@ def concat(tensors, dim=0):
         return tensors[0]
     else:
         return tensors[1]
+
+
+def get_edges(t: torch.Tensor):
+    edge = torch.cuda.ByteTensor(t.size()).zero_()
+    print(edge)
+    edge[:, :, :, :, 1:] = edge[:, :, :, :, 1:] | (t[:, :, :, :, 1:] != t[:, :, :, :, :-1])
+    edge[:, :, :, :, :-1] = edge[:, :, :, :, :-1] | (t[:, :, :, :, 1:] != t[:, :, :, :, :-1])
+    edge[:, :, :, 1:, :] = edge[:, :, :, 1:, :] | (t[:, :, :, 1:, :] != t[:, :, :, :-1, :])
+    edge[:, :, :, :-1, :] = edge[:, :, :, :-1, :] | (t[:, :, :, 1:, :] != t[:, :, :, :-1, :])
+    print(edge)
+    return edge.float()
+
+
+def print_network(net):
+    if isinstance(net, list):
+        net = net[0]
+    num_params = 0
+    for param in net.parameters():
+        num_params += param.numel()
+    print(net)
+    print('Total number of parameters: %d' % num_params)
