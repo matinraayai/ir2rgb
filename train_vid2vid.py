@@ -3,8 +3,6 @@
 ### Licensed under the CC BY-NC-SA 4.0 license
 (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
-
-from subprocess import call
 import time
 import warnings
 import torch
@@ -27,7 +25,6 @@ def train():
     # Initialize models:===============================================================================================#
     models = prepare_models(opt)
     modelG, modelD, flowNet, optimizer_G, optimizer_D, optimizer_D_T = create_optimizer(opt, models)
-
     # Set parameters:==================================================================================================#
     n_gpus, tG, tD, tDB, s_scales, t_scales, input_nc, output_nc, \
     start_epoch, epoch_iter, print_freq, total_steps, iter_path = init_params(opt, modelG, modelD, data_loader)
@@ -36,14 +33,11 @@ def train():
     # Initialize loss list:============================================================================================#
     losses_G = []
     losses_D = []
-    losses_D_T = []
-    losses_t_scales = []
-
     # Training start:==================================================================================================#
     for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
         epoch_start_time = time.time()
         for idx, data in enumerate(data_loader, start=epoch_iter):
-            if total_steps % print_freq == 0:
+            if not total_steps % print_freq:
                 iter_start_time = time.time()
             total_steps += opt.batch_size
             epoch_iter += opt.batch_size
@@ -54,12 +48,12 @@ def train():
             fake_B_prev_last, frames_all = data_loader.dataset.init_data(t_scales)
 
             for i in range(0, n_frames_total, n_frames_load):
-                input_A, input_B, inst_A = data_loader.dataset.prepare_data(data, i, input_nc, output_nc)
+                input_A, input_B = data_loader.dataset.prepare_data(data, i, input_nc, output_nc)
 
                 # Forward Pass:========================================================================================#
                 # Generator:===========================================================================================#
                 fake_B, fake_B_raw, flow, weight, real_A, real_Bp, fake_B_last = \
-                    modelG(input_A, input_B, inst_A, fake_B_prev_last)
+                    modelG(input_A, input_B, fake_B_prev_last)
 
                 # Discriminator:=======================================================================================#
                 # individual frame discriminator:==============================#
@@ -67,30 +61,28 @@ def train():
                 real_B_prev, real_B = real_Bp[:, :-1], real_Bp[:, 1:]
                 # reference flows and confidences				 
                 flow_ref, conf_ref = flowNet(real_B, real_B_prev)
-                fake_B_prev = modelG.module.compute_fake_B_prev(real_B_prev,
-                                                                fake_B_prev_last,
-                                                                fake_B)
+                fake_B_prev = modelG.compute_fake_B_prev(real_B_prev, fake_B_prev_last, fake_B)
                 fake_B_prev_last = fake_B_last
 
                 losses = modelD(0, reshape([real_B, fake_B, fake_B_raw, real_A,
                                             real_B_prev, fake_B_prev, flow,
                                             weight, flow_ref, conf_ref]))
                 losses = [torch.mean(x) if x is not None else 0 for x in losses]
-                loss_dict = dict(zip(modelD.module.loss_names, losses))
+                loss_dict = dict(zip(modelD.loss_names, losses))
 
                 # Temporal Discriminator:======================================#
                 # get skipped frames for each temporal scale
                 frames_all, frames_skipped = \
-                    modelD.module.get_all_skipped_frames(frames_all,
-                                                         real_B,
-                                                         fake_B,
-                                                         flow_ref,
-                                                         conf_ref,
-                                                         t_scales,
-                                                         tD,
-                                                         n_frames_load,
-                                                         i,
-                                                         flowNet)
+                    modelD.get_all_skipped_frames(frames_all,
+                                                  real_B,
+                                                  fake_B,
+                                                  flow_ref,
+                                                  conf_ref,
+                                                  t_scales,
+                                                  tD,
+                                                  n_frames_load,
+                                                  i,
+                                                  flowNet)
                 # run discriminator for each temporal scale:===================#
                 loss_dict_T = []
                 for s in range(t_scales):
@@ -98,11 +90,11 @@ def train():
                         losses = modelD(s + 1,
                                         [frame_skipped[s] for frame_skipped in frames_skipped])
                         losses = [torch.mean(x) if not isinstance(x, int) else x for x in losses]
-                        loss_dict_T.append(dict(zip(modelD.module.loss_names_T, losses)))
+                        loss_dict_T.append(dict(zip(modelD.loss_names_T, losses)))
 
                 # Collect losses:==============================================#
                 loss_G, loss_D, loss_D_T, t_scales_act = \
-                    modelD.module.get_losses(loss_dict, loss_dict_T, t_scales)
+                    modelD.get_losses(loss_dict, loss_dict_T, t_scales)
 
                 losses_G.append(loss_G.item())
                 losses_D.append(loss_D.item())
@@ -121,8 +113,6 @@ def train():
                 if i == 0:
                     fake_B_first = fake_B[0, 0]
 
-            if opt.debug:
-                call(["nvidia-smi", "--format=csv", "--query-gpu=memory.used,memory.free"])
 
             # Display results and errors:==============================================#
             # Print out errors:================================================#
@@ -177,12 +167,7 @@ def train():
 
 def loss_backward(opt, loss, optimizer):
     optimizer.zero_grad()
-    if opt.fp16:
-        from apex import amp
-        with amp.scale_loss(loss, optimizer) as scaled_loss:
-            scaled_loss.backward()
-    else:
-        loss.backward()
+    loss.backward()
     optimizer.step()
 
 

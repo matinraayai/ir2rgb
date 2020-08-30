@@ -47,10 +47,12 @@ def make_grouped_dataset(dir):
             images.append(paths)
     return images
 
-def check_path_valid(A_paths, B_paths):
-    assert(len(A_paths) == len(B_paths))
-    for a, b in zip(A_paths, B_paths):
-        assert(len(a) == len(b))
+
+def check_path_valid(ir_paths, rgb_paths, annotations_paths):
+    assert(len(ir_paths) == len(rgb_paths) == len(annotations_paths))
+    for a, b, c in zip(ir_paths, rgb_paths, annotations_paths):
+        assert(len(a) == len(b) == len(c))
+
 
 def default_loader(path):
     return Image.open(path).convert('RGB')
