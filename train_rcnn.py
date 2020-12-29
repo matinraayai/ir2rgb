@@ -2,24 +2,16 @@
 Author: Stephen Schmidt
 Training script for the RCNN model on the KAIST dataset.
 """
-import argparse
 import torchvision
+import torch
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from data.rcnn_dataset import RCNNDataset
-import torch
 from options.train_options import TrainOptions
 from util import utils
 from util.engine import evaluate
 import math
 
-NUM_CLASSES = 3
-LEARNING_RATE = 0.01
-WEIGHT_DECAY = 0.0005
-OPT_STEP_SIZE = 1
-GAMMA = 0.001
-WARMUP_FACTOR = 0.001
-WARMUP_ITERS = 100
-NUM_EPOCHS = 50
+
 
 def create_model():
     # load an instance segmentation model pre-trained pre-trained on COCO
@@ -47,7 +39,7 @@ opt = TrainOptions().parse()
 
 dataset = RCNNDataset(opt)
 data_loader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size,
-                                          shuffle=True, 
+                                          shuffle=False,
                                           num_workers=4, collate_fn=utils.collate_fn)
 
 

@@ -1,1 +1,1 @@
-from .vid2vid import create_dataloader
+from .vid2vid import create_dataloader, VideoSeq

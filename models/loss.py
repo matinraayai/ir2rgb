@@ -46,7 +46,7 @@ class VGGLoss(nn.Module):
         super(VGGLoss, self).__init__()
         self.vgg = Vgg19().cuda(gpu_id)
         self.criterion = nn.L1Loss()
-        self.weights = [1.0/32, 1.0/16, 1.0/8, 1.0/4, 1.0]
+        self.weights = [1.0 / 32, 1.0 / 16, 1.0 / 8, 1.0 / 4, 1.0]
         self.downsample = nn.AvgPool2d(2, stride=2, count_include_pad=False)
 
     def forward(self, x, y):
@@ -63,7 +63,6 @@ class RCNNLoss(nn.Module):
     def __init__(self, num_classes):
         super(RCNNLoss, self).__init__()
         import torchvision
-        from torchvision import models
         from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
         # load an instance segmentation model pre-trained pre-trained on COCO
         self.model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
@@ -112,6 +111,7 @@ class MaskedL1Loss(nn.Module, ABC):
         mask = mask.expand(-1, input.size()[1], -1, -1)
         loss = self.criterion(input * mask, target * mask)
         return loss
+
 
 class MultiscaleL1Loss(nn.Module):
     def __init__(self, scale=5):

@@ -8,15 +8,11 @@ from .networks import get_grid
 
 class Model(torch.nn.Module, ABC):
 
-    def __init__(self, opt):
+    def __init__(self, **opt):
         super(Model, self).__init__()
         self.opt = opt
-        self.Tensor = torch.cuda.FloatTensor if opt.gpu_ids else torch.Tensor
-        self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)
-
-    @abstractmethod
-    def __str__(self):
-        return ''
+        self.Tensor = torch.cuda.FloatTensor if opt['gpu_ids'] else torch.LongTensor
+        self.save_dir = os.path.join(opt['checkpoints_dir'], opt['name'])
 
     @abstractmethod
     def save(self, label):
@@ -64,8 +60,6 @@ class Model(torch.nn.Module, ABC):
                             not_initialized.add(k.split('.')[0])                            
                     print(sorted(not_initialized))
                     network.load_state_dict(model_dict)                  
-
-
 
     def build_pyr(self, tensor, nearest=False):
         """
@@ -116,18 +110,18 @@ class Model(torch.nn.Module, ABC):
         nfb = self.n_frames_bp
         nfl = self.n_frames_load
         if nfb < nfl:            
-            nfb = min(self.opt.max_frames_backpropagate, 2**ratio)
+            nfb = min(self.opt['max_frames_backpropagate'], 2**ratio)
             self.n_frames_bp = nfl // int(np.ceil(float(nfl) / nfb))
             print('-------- Updating number of backpropagated frames to %d ----------' % self.n_frames_bp)
 
-        if self.n_frames_per_gpu < self.opt.max_frames_per_gpu:
-            self.n_frames_per_gpu = min(self.n_frames_per_gpu*2, self.opt.max_frames_per_gpu)
+        if self.n_frames_per_gpu < self.opt['max_frames_per_gpu']:
+            self.n_frames_per_gpu = min(self.n_frames_per_gpu * 2, self.opt['max_frames_per_gpu'])
             self.n_frames_load = self.n_gpus * self.n_frames_per_gpu
             print('-------- Updating number of frames per gpu to %d ----------' % self.n_frames_per_gpu)
 
 
     def grid_sample(self, input1, input2):
-        if self.opt.fp16: # not sure if it's necessary
+        if self.opt['fp16']: # not sure if it's necessary
             return torch.nn.functional.grid_sample(input1.float(), input2.float(), mode='bilinear', padding_mode='border').half()
         else:
             return torch.nn.functional.grid_sample(input1, input2, mode='bilinear', padding_mode='border')
@@ -135,7 +129,7 @@ class Model(torch.nn.Module, ABC):
     def resample(self, image, flow):        
         b, c, h, w = image.size()        
         if not hasattr(self, 'grid') or self.grid.size() != flow.size():
-            self.grid = get_grid(b, h, w, gpu_id=flow.get_device(), dtype=flow.dtype)            
+            self.grid = get_grid(b, h, w, device=flow.get_device(), dtype=flow.dtype)
         flow = torch.cat([flow[:, 0:1, :, :] / ((w - 1.0) / 2.0), flow[:, 1:2, :, :] / ((h - 1.0) / 2.0)], dim=1)        
         final_grid = (self.grid + flow).permute(0, 2, 3, 1).cuda(image.get_device())
         output = self.grid_sample(image, final_grid)

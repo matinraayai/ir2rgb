@@ -12,7 +12,7 @@ import numpy as np
 import copy
 
 
-def get_grid(batch_size, rows, cols, gpu_id=0, dtype=torch.float32):
+def get_grid(batch_size, rows, cols, device='cuda:0', dtype=torch.float32):
     hor = torch.linspace(-1.0, 1.0, cols)
     hor.requires_grad = False
     hor = hor.view(1, 1, 1, cols)
@@ -25,9 +25,7 @@ def get_grid(batch_size, rows, cols, gpu_id=0, dtype=torch.float32):
     t_grid = torch.cat([hor, ver], 1)
     t_grid.requires_grad = False
 
-    if dtype == torch.float16:
-        t_grid = t_grid.half()
-    return t_grid.cuda(gpu_id)
+    return t_grid.to(dtype).to(device)
 
 
 def weights_init(m: nn.Module) -> None:
@@ -50,26 +48,25 @@ def get_norm_layer(norm_type: str = 'instance'):
     return norm_layer
 
 
-def build_generator_module(input_nc, output_nc, prev_output_nc, ngf, model_name, n_downsampling, norm, scale, opt=()):
-    generator = None
+def build_generator_module(input_nc, output_nc, prev_output_nc, ngf, model_name, n_downsampling, norm, scale, **opt):
     norm_layer = get_norm_layer(norm_type=norm)
 
     if model_name == 'global':
-        generator = GlobalGenerator(input_nc, output_nc, ngf, n_downsampling, opt.gen_blocks, norm_layer)
+        generator = GlobalGenerator(input_nc, output_nc, ngf, n_downsampling, opt['gen_blocks'], norm_layer)
     elif model_name == 'local':
-        generator = LocalEnhancer(input_nc, output_nc, ngf, n_downsampling, opt.gen_blocks,
-                                  opt.n_local_enhancers, opt.gen_blocks, norm_layer)
+        generator = LocalEnhancer(input_nc, output_nc, ngf, n_downsampling, opt['gen_blocks'],
+                                  opt['n_local_enhancers'], opt['gen_blocks'], norm_layer)
     elif model_name == 'global-with-features':
-        generator = Global_with_z(input_nc, output_nc, opt.feat_num, ngf, n_downsampling, opt.gen_blocks, norm_layer)
+        generator = Global_with_z(input_nc, output_nc, opt['feat_num'], ngf, n_downsampling, opt['gen_blocks'], norm_layer)
     elif model_name == 'local-with-features':
-        generator = Local_with_z(input_nc, output_nc, opt.feat_num, ngf, n_downsampling, opt.gen_blocks,
-                                 opt.n_local_enhancers, opt.n_blocks_local, norm_layer)
+        generator = Local_with_z(input_nc, output_nc, opt['feat_num'], ngf, n_downsampling, opt['gen_blocks'],
+                                 opt['n_local_enhancers'], opt['n_blocks_local'], norm_layer)
     elif model_name == 'composite':
-        generator = CompositeGeneratorModule(input_nc, output_nc, prev_output_nc, ngf, n_downsampling, opt.gen_blocks,
-                                             opt.fg, opt.no_flow, norm_layer)
+        generator = CompositeGeneratorModule(input_nc, output_nc, prev_output_nc, ngf, n_downsampling, opt['gen_blocks'],
+                                             opt['fg'], opt['no_flow'], norm_layer)
     elif model_name == 'composite-local':
         generator = CompositeLocalGeneratorModule(input_nc, output_nc, prev_output_nc, ngf, n_downsampling,
-                                                  opt.n_blocks_local, opt.fg, opt.no_flow, norm_layer, scale=scale)
+                                                  opt['n_blocks_local'], opt['fg'], opt['no_flow'], norm_layer, scale=scale)
     elif model_name == 'encoder':
         generator = Encoder(input_nc, output_nc, ngf, n_downsampling, norm_layer)
     else:
@@ -80,7 +77,7 @@ def build_generator_module(input_nc, output_nc, prev_output_nc, ngf, model_name,
 
 def build_discriminator_module(input_nc, ndf, n_layers_D, norm='instance', num_D=1, get_interm_feat=False):
     norm_layer = get_norm_layer(norm_type=norm)   
-    discriminator = MultiscaleDiscriminator(input_nc, ndf, n_layers_D, norm_layer, num_D, get_interm_feat)
+    discriminator = MultiScaleDiscriminator(input_nc, ndf, n_layers_D, norm_layer, num_D, get_interm_feat)
     discriminator.apply(weights_init)
     return discriminator
 
@@ -96,7 +93,7 @@ class BaseCompositeGeneratorModule(nn.Module, ABC):
     def resample(self, image, flow):        
         b, c, h, w = image.size()        
         if not hasattr(self, 'grid') or self.grid.size() != flow.size():
-            self.grid = get_grid(b, h, w, gpu_id=flow.get_device(), dtype=flow.dtype)            
+            self.grid = get_grid(b, h, w, device=flow.get_device(), dtype=flow.dtype)
         flow = torch.cat([flow[:, 0:1, :, :] / ((w - 1.0) / 2.0), flow[:, 1:2, :, :] / ((h - 1.0) / 2.0)], dim=1)        
         final_grid = (self.grid + flow).permute(0, 2, 3, 1).cuda(image.get_device())
         output = self.grid_sample(image, final_grid)
@@ -546,7 +543,7 @@ class Local_with_z(nn.Module):
         output = self.model_final(torch.cat([output_prev, z], dim=1))
         return output 
 
-# Define a resnet block
+
 class ResnetBlock(nn.Module):
     def __init__(self, dim, padding_type, norm_layer, activation=nn.ReLU(True), use_dropout=False):
         super(ResnetBlock, self).__init__()
@@ -623,14 +620,14 @@ class Encoder(nn.Module):
                     output_ins = outputs[indices[:,0] + b, indices[:,1] + j, indices[:,2], indices[:,3]]                    
                     mean_feat = torch.mean(output_ins).expand_as(output_ins)                    
                     ### add random noise to output feature
-                    #mean_feat += torch.normal(torch.zeros_like(mean_feat), 0.05 * torch.ones_like(mean_feat)).cuda()                    
                     outputs_mean[indices[:,0] + b, indices[:,1] + j, indices[:,2], indices[:,3]] = mean_feat
         return outputs_mean
 
-class MultiscaleDiscriminator(nn.Module):
+
+class MultiScaleDiscriminator(nn.Module, ABC):
     def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, 
                  num_D=3, getIntermFeat=False):
-        super(MultiscaleDiscriminator, self).__init__()
+        super(MultiScaleDiscriminator, self).__init__()
         self.num_D = num_D
         self.n_layers = n_layers
         self.getIntermFeat = getIntermFeat
@@ -721,7 +718,7 @@ class NLayerDiscriminator(nn.Module):
             return self.model(input)        
 
 
-class Vgg19(nn.Module):
+class Vgg19(nn.Module, ABC):
     def __init__(self, requires_grad=False):
         from torchvision import models
         super(Vgg19, self).__init__()
@@ -745,8 +742,8 @@ class Vgg19(nn.Module):
             for param in self.parameters():
                 param.requires_grad = False
 
-    def forward(self, X):
-        h_relu1 = self.slice1(X)
+    def forward(self, x):
+        h_relu1 = self.slice1(x)
         h_relu2 = self.slice2(h_relu1)        
         h_relu3 = self.slice3(h_relu2)        
         h_relu4 = self.slice4(h_relu3)        

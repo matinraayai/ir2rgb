@@ -18,13 +18,13 @@ class CommonOptions:
         self.parser.add_argument('--name', type=str,
                                  default='experiment_name',
                                  help='name of the experiment used for storing samples and models')
-        self.parser.add_argument('--checkpoints_dir', type=str,
+        self.parser.add_argument('--checkpoints-dir', type=str,
                                  default='./checkpoints', help='path to save model checkpoints')
         self.parser.add_argument('--debug', action='store_true', help='if specified, use small dataset for debug')
         self.parser.add_argument('--fp16', action='store_true', default=False, help='train with AMP')
-        self.parser.add_argument('--local_rank', type=int, default=0, help='local rank for distributed training')
+        self.parser.add_argument('--local-rank', type=int, default=0, help='local rank for distributed training')
         # Dataset arguments ============================================================================================
-        self.parser.add_argument('--data-root', type=str, default='kaist-rgbt/images/')
+        self.parser.add_argument('--data-root', type=str, default='../Dataset/')
         self.parser.add_argument('--batch-size', type=int, default=1, help='input batch size')
         self.parser.add_argument('--load-size', type=int, default=512, help='scales images to this size')
         self.parser.add_argument('--fine-size', type=int, default=512, help='crops images to this size after scaling')
@@ -51,8 +51,8 @@ class CommonOptions:
         self.parser.add_argument('--flip', default=False, action='store_true',
                                  help='if specified, flips the images for data argumentation')
         # Common Architecture properties ===============================================================================
-        self.parser.add_argument('--model', type=str, choices=['vid2vid', 'test'], default='vid2vid',
-                                 help='chooses which model to use: vid2vid, test')
+        self.parser.add_argument('--model', type=str, choices=['dataset', 'test'], default='dataset',
+                                 help='chooses which model to use: dataset, test')
         self.parser.add_argument('--load-pretrained', type=str, default='',
                                  help='if specified, load the pretrained model')
         self.parser.add_argument('--norm', type=str, default='batch',
@@ -63,7 +63,10 @@ class CommonOptions:
                                  help='number of GPUs used for generator'
                                  '(the rest of gpu-ids are used for the discriminator). -1 means use all GPUs')
         # Generator Network Architecture ===============================================================================
-        self.parser.add_argument('--gen-network', type=str, default='composite',
+        self.parser.add_argument('--gen-network', type=str,
+                                 choices=['global', 'local', 'global-with-features', 'local-with-features',
+                                          'composite', 'composite-local', 'encoder'],
+                                 default='composite',
                                  help='selects model to use for the generator network')
         self.parser.add_argument('--first-layer-gen-filters', type=int, default=128,
                                  help='# of filters in the first conv layer of the generator network')
@@ -75,17 +78,17 @@ class CommonOptions:
         self.parser.add_argument('--n-input-gen-frames', type=int, default=3,
                                  help='number of input frames to feed into generator, '
                                       'i.e., n_input_gen_frames - 1 is the number of frames we look into past')
-        self.parser.add_argument('--n_scales_spatial', type=int, default=1,
+        self.parser.add_argument('--n-scales-spatial', type=int, default=1,
                                  help='number of spatial scales in the coarse-to-fine generator')
-        self.parser.add_argument('--no_first_img', action='store_true',
+        self.parser.add_argument('--no-first-img', action='store_true',
                                  help='if specified, generator also tries to synthesize the first image')
-        self.parser.add_argument('--use_single_G', action='store_true',
+        self.parser.add_argument('--use-single-G', action='store_true',
                                  help='if specified, use single frame generator for the first frame')
         self.parser.add_argument('--fg', action='store_true',
                                  help='if specified, use foreground-background seperation model')
-        self.parser.add_argument('--fg_labels', type=str, default='26',
+        self.parser.add_argument('--fg-labels', type=str, default='26',
                                  help='label indices for foreground objects')
-        self.parser.add_argument('--no_flow', action='store_true',
+        self.parser.add_argument('--no-flow', action='store_true',
                                  help='if specified, does not use flow warping and directly synthesize frames')
         # Visualization Options ========================================================================================
         self.parser.add_argument('--display-winsize', type=int, default=512,
@@ -96,21 +99,21 @@ class CommonOptions:
                                  help='if specified, use tensorboard logging. Requires tensorflow installed')
 
         # more features as input
-        self.parser.add_argument('--use_instance', action='store_true',
+        self.parser.add_argument('--use-instance', action='store_true',
                                  help='if specified, add instance map as feature for class A')
-        self.parser.add_argument('--label_feat', action='store_true',
+        self.parser.add_argument('--label-feat', action='store_true',
                                  help='if specified, encode label features as input')
-        self.parser.add_argument('--feat_num', type=int, default=3,
+        self.parser.add_argument('--feat-num', type=int, default=3,
                                  help='number of encoded features')
         self.parser.add_argument('--nef', type=int, default=32, help='# of encoder filters in first conv layer')
-        self.parser.add_argument('--load_features', action='store_true', help='if specified, load precomputed feature maps')
+        self.parser.add_argument('--load-features', action='store_true', help='if specified, load precomputed feature maps')
         self.parser.add_argument('--netE', type=str, default='simple', help='which model to use for encoder') 
-        self.parser.add_argument('--n_downsample_E', type=int, default=3, help='number of downsampling layers in netE')
+        self.parser.add_argument('--n-downsample-E', type=int, default=3, help='number of downsampling layers in netE')
 
         # for cascaded resnet        
-        self.parser.add_argument('--n_blocks_local', type=int, default=3,
+        self.parser.add_argument('--n-blocks-local', type=int, default=3,
                                  help='number of resnet blocks in outmost multiscale resnet')
-        self.parser.add_argument('--n_local_enhancers', type=int, default=1, help='number of cascaded layers')
+        self.parser.add_argument('--n-local-enhancers', type=int, default=1, help='number of cascaded layers')
 
     def parse_str(self, ids):
         str_ids = ids.split(',')

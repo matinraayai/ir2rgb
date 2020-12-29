@@ -64,3 +64,6 @@ class TrainOptions(CommonOptions):
                                  help='how many epochs do we change training batch size again')
         self.parser.add_argument('--niter_fix_global', type=int, default=0,
                                  help='if specified, only train the finest spatial layer for the given iterations')
+        self.parser.add_argument('--flownet-checkpoint-path', type=str,
+                                 default='models/flownet2_pytorch/FlowNet2_checkpoint.pth.tar',
+                                 help='if specified, only train the finest spatial layer for the given iterations')

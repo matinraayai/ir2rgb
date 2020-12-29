@@ -1,49 +1,46 @@
-### Copyright (C) 2017 NVIDIA Corporation. All rights reserved. 
-### Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
+"""
+Copyright (C) 2017 NVIDIA Corporation. All rights reserved.
+Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
+"""
 import numpy as np
 import os
 import time
 from . import util
 from . import html
-import scipy.misc 
-try:
-    from StringIO import StringIO  # Python 2.7
-except ImportError:
-    from io import BytesIO         # Python 3.x
+import scipy.misc
+from io import BytesIO
 
-class Visualizer():
-    def __init__(self, opt):
-        self.opt = opt
-        self.tf_log = opt.tf_log
-        self.use_html = opt.is_train and not opt.no_html
-        self.win_size = opt.display_winsize
-        self.name = opt.name
+
+class Visualizer:
+    def __init__(self, **kwargs):
+        self.tf_log = kwargs['tf_log']
+        self.use_html = kwargs['is_train'] and not kwargs['no_html']
+        self.win_size = kwargs['display_winsize']
+        self.name = kwargs['name']
+        self.label_nc = kwargs['label_nc']
         if self.tf_log:
             import tensorflow as tf
             self.tf = tf
-            self.log_dir = os.path.join(opt.checkpoints_dir, opt.name, 'logs')
+            self.log_dir = os.path.join(kwargs['checkpoints_dir'], kwargs['name'], 'logs')
             self.writer = tf.summary.FileWriter(self.log_dir)
 
         if self.use_html:
-            self.web_dir = os.path.join(opt.checkpoints_dir, opt.name, 'web')
+            self.web_dir = os.path.join(kwargs['checkpoints_dir'], kwargs['name'], 'web')
             self.img_dir = os.path.join(self.web_dir, 'images')
             print('create web directory %s...' % self.web_dir)
             util.mkdirs([self.web_dir, self.img_dir])
-        self.log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
+        self.log_name = os.path.join(kwargs['checkpoints_dir'], kwargs['name'], 'loss_log.txt')
         with open(self.log_name, "a") as log_file:
             now = time.strftime("%c")
-            log_file.write('================ Training Loss (%s) ================\n' % now)
+            log_file.write(f'================ Training Loss ({now}) ================\n')
 
     # |visuals|: dictionary of images to display or save
     def display_current_results(self, visuals, epoch, step):
-        if self.tf_log: # show images in tensorboard output
+        if self.tf_log:  # show images in tensorboard output
             img_summaries = []
             for label, image_numpy in visuals.items():
                 # Write the image to a string
-                try:
-                    s = StringIO()
-                except:
-                    s = BytesIO()
+                s = BytesIO()
                 scipy.misc.toimage(image_numpy).save(s, format="jpeg")
                 # Create an Image object
                 img_sum = self.tf.Summary.Image(encoded_image_string=s.getvalue(), height=image_numpy.shape[0], width=image_numpy.shape[1])
@@ -123,7 +120,7 @@ class Visualizer():
             ims, txts, links = [], [], []         
 
         for label, image_numpy in visuals.items():
-            save_ext = 'png' if 'real_A' in label and self.opt.label_nc != 0 else 'jpg'
+            save_ext = 'png' if 'real_A' in label and self.label_nc != 0 else 'jpg'
             image_name = '%s_%s.%s' % (label, name, save_ext)
             save_path = os.path.join(image_dir, image_name)
             util.save_image(image_numpy, save_path)

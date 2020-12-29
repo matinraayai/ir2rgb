@@ -21,9 +21,6 @@ def save_all_tensors(opt, real_A, fake_B, fake_B_first, fake_B_raw, real_B, flow
     else:
         c = 3 if opt.input_nc >= 3 else 1
         input_image = tensor2im(real_A[0, -1, :c], normalize=False)
-    if opt.use_instance:
-        edges = tensor2im(real_A[0, -1, -1:], normalize=False)
-        input_image += edges[:,:,np.newaxis]
     
     if opt.add_face_disc:
         ys, ye, xs, xe = modelD.module.get_face_region(real_A[0, -1:])

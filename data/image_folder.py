@@ -22,25 +22,26 @@ def is_image_file(filename):
     return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
 
 
-def make_dataset(dir):
+def make_dataset(directory):
     images = []
-    assert os.path.isdir(dir), '%s is not a valid directory' % dir
+    assert os.path.isdir(directory), f"{directory} does not exist or is no a valid directory"
 
-    for root, _, fnames in sorted(os.walk(dir)):
-        for fname in fnames:
-            if is_image_file(fname):
-                path = os.path.join(root, fname)
+    for root, _, f_names in sorted(os.walk(directory)):
+        for f_name in f_names:
+            if is_image_file(f_name):
+                path = os.path.join(root, f_name)
                 images.append(path)
     return images
 
-def make_grouped_dataset(dir):
+
+def make_grouped_dataset(directory):
     images = []
-    assert os.path.isdir(dir), '%s is not a valid directory' % dir
-    fnames = sorted(os.walk(dir))
-    for fname in sorted(fnames):
+    assert os.path.isdir(directory), f"{directory} does not exist or is no a valid directory"
+    f_names = sorted(os.walk(directory))
+    for f_name in sorted(f_names):
         paths = []
-        root = fname[0]
-        for f in sorted(fname[2]):
+        root = f_name[0]
+        for f in sorted(f_name[2]):
             if is_image_file(f):
                 paths.append(os.path.join(root, f))
         if len(paths) > 0:

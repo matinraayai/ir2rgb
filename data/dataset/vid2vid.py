@@ -9,22 +9,62 @@ import torch.utils.data as data
 import torch
 from PIL import Image
 from abc import abstractmethod
-from argparse import Namespace
 from data.transform import get_img_params, get_video_params, get_transform
 
-__all__ = ['create_dataloader']
+__all__ = ['create_dataloader', 'VideoSeq']
+
+
+
+def get_image(A_path, transform_scaleA):
+    A_img = Image.open(A_path)
+    A_scaled = transform_scaleA(A_img)
+    return A_scaled
+
+
+class VideoSeq:
+    def __init__(self, ir_frames, rgb_frames, annotations, **kwargs):
+        self.ir_frames = ir_frames
+        self.rgb_frames = rgb_frames
+        self.annotations = annotations
+        t_g = kwargs['n_input_gen_frames']
+
+        self.n_gpus = kwargs['gen_gpus']
+        self.input_nc = kwargs['input_nc']
+        self.output_nc = kwargs['output_nc']
+        # n_frames_total = n_frames_load * n_loadings + tG - 1
+        _, n_frames_total, self.height, self.width = self.rgb_frames.size()
+        n_frames_total = n_frames_total // self.output_nc
+        # number of total frames loaded into GPU at a time for each batch
+        n_frames_load = kwargs['max_frames_per_gpu'] * kwargs['gen_gpus']
+        self.n_frames_load = min(n_frames_load, n_frames_total - t_g + 1)
+        self.t_len = self.n_frames_load + n_frames_load + t_g - 1  # number of loaded frames plus previous frames
+        self.n_frames_total = n_frames_total - self.t_len + 1
+
+    def __getitem__(self, i):
+        t_len, height, width, input_nc, output_nc = self.t_len, self.height, self.width, self.input_nc, self.output_nc
+        # 4D tensor: # of frames, # of channels, height, width
+        ir = (self.ir_frames[:, i * input_nc:(i + t_len) * input_nc, ...]).view(-1, t_len, input_nc, height, width)
+        rgb = (self.rgb_frames[:, i * output_nc:(i + t_len) * output_nc, ...]).view(-1, t_len, output_nc, height, width)
+
+        return ir, rgb
+
+    def __len__(self):
+        return self.n_frames_total // self.t_len
+
+    def __str__(self):
+        return f"IR: {self.ir_frames}\nRGB: {self.rgb_frames}\nAnnotation: {self.annotations}"
+
 
 
 class IR2RGBBaseDataset(data.Dataset):
-    def __init__(self, opt):
-        self.opt = opt
-        self.ir_dir = os.path.join(opt.data_root, opt.phase + '_IR')
-        self.rgb_dir = os.path.join(opt.data_root, opt.phase + '_RGB')
-        self.annotations_dir = os.path.join(opt.data_root, opt.phase + '_Annotations')
-        self.ir_is_label = self.opt.label_nc != 0
+    def __init__(self, data_root, phase, label_nc):
+        self.data_dir = os.path.join(data_root, 'images')
+        self.annotations_dir = os.path.join(data_root, 'annotations')
+        self.ir_is_label = label_nc != 0
 
-        self.ir_paths = sorted(make_grouped_dataset(self.ir_dir))
-        self.rgb_paths = sorted(make_grouped_dataset(self.rgb_dir))
+        self.data_paths = sorted(make_grouped_dataset(self.data_dir))
+        self.ir_paths = sorted([path for path in self.data_paths if path[0].find("lwir") != -1])
+        self.rgb_paths = sorted([path for path in self.data_paths if path[0].find("visible") != -1])
         self.annotations_path = sorted(make_grouped_dataset(self.annotations_dir))
         check_path_valid(self.ir_paths, self.rgb_paths, self.annotations_path)
 
@@ -38,98 +78,76 @@ class IR2RGBBaseDataset(data.Dataset):
 
 
 class IR2RGBFrameDataset(IR2RGBBaseDataset):
-    def __init__(self, opt):
-        super(IR2RGBBaseDataset, self).__init__(opt)
+    def __init__(self, data_root, phase, label_nc):
+        super(IR2RGBBaseDataset, self).__init__(data_root, phase, label_nc)
 
 
 class IR2RGBBaseVideoDataset(IR2RGBBaseDataset, ABC):
-    def __init__(self, opt):
-        super(IR2RGBBaseVideoDataset, self).__init__(opt)
+    def __init__(self,
+                 data_root, phase, label_nc, n_frames_total,
+                 n_input_gen_frames, output_nc,
+                 max_frames_per_gpu):
+        super(IR2RGBBaseVideoDataset, self).__init__(data_root, phase, label_nc)
         self.n_of_seqs = len(self.ir_paths)  # number of sequences to train
-        self.n_frames_total = self.opt.n_frames_total
+        self.n_frames_total = n_frames_total
+        self.current_n_frames_total = n_frames_total
         self.seq_len_max = max([len(path) for path in self.ir_paths])
-        self.height, self.width = None, None
+        self.n_input_gen_frames = n_input_gen_frames
+        self.output_nc = output_nc
+        self.max_frames_per_gpu = max_frames_per_gpu
 
     def update_sequence_length(self, ratio):
         """
         Updates the total number of frames in training sequence length to be longer.
         :param ratio: the power of 2 to increase the number of total frames
-        :return: None
         """
-        seq_len_max = min(128, self.seq_len_max) - (self.opt.n_input_gen_frames - 1)
-        if self.n_frames_total < seq_len_max:
-            self.n_frames_total = min(seq_len_max, self.opt.n_frames_total * (2 ** ratio))
+        seq_len_max = min(128, self.seq_len_max) - (self.n_input_gen_frames - 1)
+        if self.current_n_frames_total < seq_len_max:
+            self.current_n_frames_total = min(seq_len_max, self.n_frames_total * (2 ** ratio))
             print(f'Updating training sequence length to {self.n_frames_total}.')
-
-    def init_data_params(self, data, n_gpus, tG):
-        # n_frames_total = n_frames_load * n_loadings + tG - 1
-        _, n_frames_total, self.height, self.width = data['RGB'].size()
-        n_frames_total = n_frames_total // self.opt.output_nc
-        # number of total frames loaded into GPU at a time for each batch
-        n_frames_load = self.opt.max_frames_per_gpu * n_gpus
-        n_frames_load = min(n_frames_load, n_frames_total - tG + 1)
-        self.t_len = n_frames_load + tG - 1  # number of loaded frames plus previous frames
-        return n_frames_total - self.t_len + 1, n_frames_load, self.t_len
-
-    def init_data(self, t_scales):
-        # the last generated frame from previous training batch (which becomes input to the next batch)
-        fake_b_last = None
-        real_B_all, fake_B_all, flow_ref_all, conf_ref_all = None, None, None, None  # all real/generated frames so far
-        if self.opt.sparse_D:
-            real_B_all, fake_B_all, flow_ref_all, conf_ref_all = [None] * t_scales, [None] * t_scales, [
-                None] * t_scales, [None] * t_scales
-
-        frames_all = real_B_all, fake_B_all, flow_ref_all, conf_ref_all
-        return fake_b_last, frames_all
-
-    def prepare_data(self, data, i, input_nc, output_nc):
-        t_len, height, width = self.t_len, self.height, self.width
-        # 5D tensor: batchSize, # of frames, # of channels, height, width
-        input_A = (data['IR'][:, i * input_nc:(i + t_len) * input_nc, ...]).view(-1, t_len, input_nc, height, width)
-        input_B = (data['RGB'][:, i * output_nc:(i + t_len) * output_nc, ...]).view(-1, t_len, output_nc, height, width)
-
-        return [input_A, input_B]
 
 
 class IR2RGBTrainVideoDataset(IR2RGBBaseVideoDataset):
-    def __init__(self, opt):
-        super(IR2RGBTrainVideoDataset, self).__init__(opt)
+    def __init__(self, **kwargs):
+        super(IR2RGBTrainVideoDataset, self).__init__(kwargs['data_root'],
+                                                      kwargs['phase'],
+                                                      kwargs['label_nc'],
+                                                      kwargs['n_frames_total'],
+                                                      kwargs['n_input_gen_frames'],
+                                                      kwargs['output_nc'],
+                                                      kwargs['max_frames_per_gpu'])
+        self.kwargs = kwargs
 
     def __getitem__(self, index):
         ir_paths = self.ir_paths[index % self.n_of_seqs]
         rgb_paths = self.rgb_paths[index % self.n_of_seqs]
         annotation_paths = self.annotations_path[index % self.n_of_seqs]
 
-        # setting parameters
-        n_frames_total, start_idx, t_step = get_video_params(self.opt, self.n_frames_total, len(ir_paths), index)
+        n_frames_total, start_idx, t_step = get_video_params(len(ir_paths), index, **self.kwargs)
 
         # setting transformers
         rgb_img = Image.open(rgb_paths[start_idx]).convert('RGB')
-        params = get_img_params(self.opt, rgb_img.size)
-        transform_scale_rgb = get_transform(self.opt, params)
+        params = get_img_params(rgb_img.size, **self.kwargs)
+        transform_scale_rgb = get_transform(params, **self.kwargs)
         transform_scale_ir = transform_scale_rgb
 
         # read in images and annotations
-        ir_frames = rgb_frames = annotations = 0
+        ir_frames = torch.empty(0)
+        rgb_frames = torch.empty(0)
+        annotations = torch.empty(0)
         for i in range(n_frames_total):
             current_ir_path = ir_paths[start_idx + i * t_step]
             current_rgb_path = rgb_paths[start_idx + i * t_step]
             current_annotation_path = annotation_paths[start_idx + i * t_step]
-            current_ir_frame = self.get_image(current_ir_path, transform_scale_ir)
-            current_rgb_frame = self.get_image(current_rgb_path, transform_scale_rgb)
+            current_ir_frame = get_image(current_ir_path, transform_scale_ir)
+            current_rgb_frame = get_image(current_rgb_path, transform_scale_rgb)
             current_annotation = read_bb_file(current_annotation_path)
 
-            ir_frames = current_ir_frame if i == 0 else torch.cat([ir_frames, current_ir_frame], dim=0)
-            rgb_frames = current_rgb_frame if i == 0 else torch.cat([rgb_frames, current_rgb_frame], dim=0)
-            annotations = current_annotation if i == 0 else torch.cat([annotations, current_annotation], dim=0)
+            ir_frames = torch.cat([ir_frames, current_ir_frame], dim=0)
+            rgb_frames = torch.cat([rgb_frames, current_rgb_frame], dim=0)
+            annotations = torch.cat([annotations, current_annotation], dim=0)
 
-        return {'IR': ir_frames, 'RGB': rgb_frames, 'Annotations': annotations}
-
-    @staticmethod
-    def get_image(A_path, transform_scaleA, is_label=False):
-        A_img = Image.open(A_path)
-        A_scaled = transform_scaleA(A_img)
-        return A_scaled
+        return {'ir_frames': ir_frames, 'rgb_frames': rgb_frames, 'annotations': annotations}
 
     def __len__(self):
         return len(self.ir_paths)
@@ -142,18 +160,8 @@ def read_bb_file(bb_file_path):
         bb_strings = f.readlines()[1:]
     bb_data = [bb_string.split() for bb_string in bb_strings]
     bb_data = [[int(bb_corner) for bb_corner in bb_entry[1:5]] for bb_entry in bb_data]
-    # for i, bb_entry in enumerate(bb_data):
-    #    x_1 = bb_entry[0]
-    #    x_2 = bb_entry[1]
-    #    y_1 = bb_entry[2]
-    #    y_2 = bb_entry[3]
-    #    bb_data[i][0] = min(x_1, x_2)
-    #    bb_data[i][1] = min(y_1, y_2)
-    #    bb_data[i][2] = max(x_1, x_2)
-    #    bb_data[i][3] = max(y_1, y_2)
     bb_data.insert(0, [1, 1, 320, 256])
     bb_data = torch.tensor(bb_data, dtype=torch.float32)
-    # print(bb_data)
     return bb_data
 
 
@@ -243,14 +251,14 @@ class IR2RGBTestVideoDataset(IR2RGBBaseVideoDataset):
         return len(self.A_paths)
 
 
-def create_dataloader(opt: Namespace) -> data.DataLoader:
-    if opt.dataset_mode == 'temporal':
-        dataset = IR2RGBTrainVideoDataset(opt)
-    elif opt.dataset_mode == 'test':
-        dataset = IR2RGBTestVideoDataset(opt)
+def create_dataloader(**kwargs) -> data.DataLoader:
+    if kwargs['dataset_mode'] == 'temporal':
+        dataset = IR2RGBTrainVideoDataset(**kwargs)
+    elif kwargs['dataset_mode'] == 'test':
+        dataset = IR2RGBTestVideoDataset(**kwargs)
     else:
-        raise NotImplementedError("Dataset [{:s}] is not recognized.".format(opt.dataset_mode))
-    data_loader = data.DataLoader(dataset, batch_size=opt.batch_size,
-                                  shuffle=not opt.serial_batches,
-                                  num_workers=opt.dataloader_threads)
+        raise NotImplementedError(f"Dataset [{kwargs['dataset_mode']}] is not recognized.")
+    data_loader = data.DataLoader(dataset, batch_size=kwargs['batch_size'],
+                                  shuffle=not kwargs['serial_batches'],
+                                  num_workers=kwargs['dataloader_threads'])
     return data_loader

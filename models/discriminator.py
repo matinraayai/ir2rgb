@@ -16,54 +16,53 @@ class Vid2VidModelD(Model, ABC):
     """
     Original Discriminator for the Vid2Vid model.
     """
-    def __str__(self):
-        return 'Vid2VidModelD'
-
-    def __init__(self, opt):
-        super(Vid2VidModelD, self).__init__(opt)
-        gpu_split_id = opt.gen_gpus
-        if opt.batch_size == 1:
+    def __init__(self, **opt):
+        super(Vid2VidModelD, self).__init__(**opt)
+        gpu_split_id = opt['gen_gpus']
+        if opt['batch_size'] == 1:
             gpu_split_id += 1
-        self.gpu_ids = ([opt.gpu_ids[0]] + opt.gpu_ids[gpu_split_id:]) \
-            if opt.gen_gpus != len(opt.gpu_ids) else opt.gpu_ids
-        if not opt.debug:
+        self.gpu_ids = ([opt['gpu_ids'][0]] + opt['gpu_ids'][gpu_split_id:]) \
+            if opt['gen_gpus'] != len(opt['gpu_ids']) else opt['gpu_ids']
+        if not opt['debug']:
             torch.backends.cudnn.benchmark = True
-        self.tD = opt.n_frames_D
-        self.output_nc = opt.output_nc 
+        self.tD = opt['n_frames_D']
+        self.output_nc = opt['output_nc']
 
         # Network Definitions:=================================================#
         # Single Image Discriminator:==========================================#
-        self.input_nc = opt.label_nc if opt.label_nc != 0 else opt.input_nc
-        if opt.use_instance:
+        self.input_nc = opt['label_nc'] if opt['label_nc'] != 0 else opt['input_nc']
+        if opt['use_instance']:
             self.input_nc += 1
-        netD_input_nc = self.input_nc + opt.output_nc
+        netD_input_nc = self.input_nc + opt['output_nc']
 
-        self.netD = networks.build_discriminator_module(netD_input_nc, opt.first_layer_dis_filters, opt.n_layers_D, opt.norm,
-                                                        opt.num_D, not opt.no_ganFeat)
+        self.netD = networks.build_discriminator_module(netD_input_nc, opt['first_layer_dis_filters'],
+                                                        opt['n_layers_D'], opt['norm'],
+                                                        opt['num_D'], not opt['no_ganFeat'])
 
         # Temporal Discriminator:==============================================#
-        netD_input_nc = opt.output_nc * opt.n_frames_D + 2 * (opt.n_frames_D-1)
-        for s in range(opt.n_scales_temporal):
+        netD_input_nc = opt['output_nc'] * opt['n_frames_D'] + 2 * (opt['n_frames_D'] - 1)
+        for s in range(opt['n_scales_temporal']):
             setattr(self,
                     'netD_T' + str(s),
-                    networks.build_discriminator_module(netD_input_nc, opt.first_layer_dis_filters, opt.n_layers_D, opt.norm,
-                                                        opt.num_D, not opt.no_ganFeat))
+                    networks.build_discriminator_module(netD_input_nc, opt['first_layer_dis_filters'],
+                                                        opt['n_layers_D'], opt['norm'],
+                                                        opt['num_D'], not opt['no_ganFeat']))
 
         # Load saved weights from disk:========================================#
-        if opt.continue_train or opt.load_pretrained:
-            self.load_network(self.netD, 'D', opt.which_epoch, opt.load_pretrained)
-            for s in range(opt.n_scales_temporal):
+        if opt['continue_train'] or opt['load_pretrained']:
+            self.load_network(self.netD, 'D', opt['which_epoch'], opt['load_pretrained'])
+            for s in range(opt['n_scales_temporal']):
                 self.load_network(getattr(self, 'netD_T' + str(s)),
                                   'D_T'+str(s),
-                                  opt.which_epoch,
-                                  opt.load_pretrained)
+                                  opt['which_epoch'],
+                                  opt['load_pretrained'])
 
         # Loss functions:======================================================#
-        self.criterionGAN = loss.GANLoss(opt.gan_mode, tensor=self.Tensor)
+        self.criterionGAN = loss.GANLoss(opt['gan_mode'])
         self.criterionFlow = loss.MaskedL1Loss()
         self.criterionWarp = loss.MaskedL1Loss()
         self.criterionFeat = torch.nn.L1Loss()
-        if not opt.no_vgg:
+        if not opt['no_vgg']:
             self.criterionVGG = loss.VGGLoss(self.gpu_ids[0])
 
         self.loss_names = ['G_VGG', 'G_GAN', 'G_GAN_Feat',
@@ -72,28 +71,28 @@ class Vid2VidModelD(Model, ABC):
         self.loss_names_T = ['G_T_GAN', 'G_T_GAN_Feat',
                              'D_T_real', 'D_T_fake', 'G_T_Warp']
         # Set optimizers:======================================================#
-        self.old_lr = opt.lr
+        self.old_lr = opt['lr']
         # initialize optimizers D and D_T:=====================================#                                
         params = list(self.netD.parameters())
-        if opt.TTUR:                
+        if opt['TTUR']:
             beta1, beta2 = 0, 0.9
-            lr = opt.lr * 2
+            lr = opt['lr'] * 2
         else:
-            beta1, beta2 = opt.beta1, 0.999
-            lr = opt.lr
+            beta1, beta2 = opt['beta1'], 0.999
+            lr = opt['lr']
         self.optimizer_D = torch.optim.Adam(params, lr=lr, betas=(beta1, beta2))
 
-        for s in range(opt.n_scales_temporal):            
+        for s in range(opt['n_scales_temporal']):
             params = list(getattr(self, 'netD_T'+str(s)).parameters())          
-            optimizer_D_T = torch.optim.Adam(params, lr=opt.lr, betas=(opt.beta1, 0.999))            
+            optimizer_D_T = torch.optim.Adam(params, lr=opt['lr'], betas=(opt['beta1'], 0.999))
             setattr(self, 'optimizer_D_T'+str(s), optimizer_D_T)    
 
     def forward(self, scale_T, tensors_list, dummy_bs=0):
-        lambda_feat = self.opt.lambda_feat
-        lambda_F = self.opt.lambda_F
-        lambda_T = self.opt.lambda_T
-        scale_S = self.opt.n_scales_spatial
-        tD = self.opt.n_frames_D
+        lambda_feat = self.opt['lambda_feat']
+        lambda_F = self.opt['lambda_F']
+        lambda_T = self.opt['lambda_T']
+        scale_S = self.opt['n_scales_spatial']
+        tD = self.opt['n_frames_D']
         if tensors_list[0].get_device() == self.gpu_ids[0]:
             tensors_list = util.remove_dummy_from_tensor(tensors_list, dummy_bs)
             if tensors_list[0].size(0) == 0:                
@@ -123,7 +122,7 @@ class Vid2VidModelD(Model, ABC):
             
             ################## weight loss ##################
             loss_W = torch.zeros_like(weight)
-            if self.opt.no_first_img:
+            if self.opt['no_first_img']:
                 dummy0 = torch.zeros_like(weight)
                 loss_W = self.criterionFlow(weight, dummy0, conf_ref)
         else:
@@ -131,14 +130,15 @@ class Vid2VidModelD(Model, ABC):
 
         #################### fake_B loss ####################        
         ### VGG + GAN loss 
-        loss_G_VGG = (self.criterionVGG(fake_B, real_B) * lambda_feat) if not self.opt.no_vgg else torch.zeros_like(loss_W)
+        loss_G_VGG = (self.criterionVGG(fake_B, real_B) * lambda_feat) if not self.opt['no_vgg'] else \
+            torch.zeros_like(loss_W)
         loss_D_real, loss_D_fake, loss_G_GAN, loss_G_GAN_Feat = self.compute_loss_D(self.netD, real_A, real_B, fake_B)
         ### Warp loss
         fake_B_warp_ref = self.resample(fake_B_prev, flow_ref)
         loss_G_Warp = self.criterionWarp(fake_B, fake_B_warp_ref.detach(), conf_ref) * lambda_T
         
         if fake_B_raw is not None:
-            if not self.opt.no_vgg:
+            if not self.opt['no_vgg']:
                 loss_G_VGG += self.criterionVGG(fake_B_raw, real_B) * lambda_feat        
             l_D_real, l_D_fake, l_G_GAN, l_G_GAN_Feat = self.compute_loss_D(self.netD, real_A, real_B, fake_B_raw)        
             loss_G_GAN += l_G_GAN; loss_G_GAN_Feat += l_G_GAN_Feat
@@ -151,7 +151,8 @@ class Vid2VidModelD(Model, ABC):
         loss_list = [loss.view(-1, 1) for loss in loss_list]           
         return loss_list
 
-    def compute_loss_D(self, netD, real_A, real_B, fake_B):        
+    def compute_loss_D(self, netD, real_A, real_B, fake_B):
+        print(real_A.shape, real_B.shape, fake_B.shape)
         real_AB = torch.cat((real_A, real_B), dim=1)
         fake_AB = torch.cat((real_A, fake_B), dim=1)
         pred_real = netD.forward(real_AB)
@@ -165,7 +166,7 @@ class Vid2VidModelD(Model, ABC):
         return loss_D_real, loss_D_fake, loss_G_GAN, loss_G_GAN_Feat      
 
     def compute_loss_D_T(self, real_B, fake_B, flow_ref, conf_ref, scale_T):         
-        netD_T = getattr(self, 'netD_T'+str(scale_T))
+        netD_T = getattr(self, 'netD_T' + str(scale_T))
         real_B = real_B.view(-1, self.output_nc * self.tD, self.height, self.width)
         fake_B = fake_B.view(-1, self.output_nc * self.tD, self.height, self.width)        
         if flow_ref is not None:
@@ -188,13 +189,13 @@ class Vid2VidModelD(Model, ABC):
 
         # GAN feature matching loss
         loss_G_GAN_Feat = torch.zeros_like(loss_G_GAN)
-        if not self.opt.no_ganFeat:
-            feat_weights = 4.0 / (self.opt.n_layers_D + 1)
-            D_weights = 1.0 / self.opt.num_D
-            for i in range(min(len(pred_fake), self.opt.num_D)):
+        if not self.opt['no_ganFeat']:
+            feat_weights = 4.0 / (self.opt['n_layers_D'] + 1)
+            D_weights = 1.0 / self.opt['num_D']
+            for i in range(min(len(pred_fake), self.opt['num_D'])):
                 for j in range(len(pred_fake[i])-1):
                     loss_G_GAN_Feat += D_weights * feat_weights * \
-                        self.criterionFeat(pred_fake[i][j], pred_real[i][j].detach()) * self.opt.lambda_feat
+                        self.criterionFeat(pred_fake[i][j], pred_real[i][j].detach()) * self.opt['lambda_feat']
 
         return loss_G_GAN, loss_G_GAN_Feat
 
@@ -207,8 +208,8 @@ class Vid2VidModelD(Model, ABC):
         if face.size()[0]:
             y, x = face[:,1], face[:,2]
             ys, ye, xs, xe = y.min().item(), y.max().item(), x.min().item(), x.max().item()
-            yc, ylen = int(ys+ye)//2, self.opt.fine_size//32*8
-            xc, xlen = int(xs+xe)//2, self.opt.fine_size//32*8
+            yc, ylen = int(ys+ye)//2, self.opt['fine_size']//32*8
+            xc, xlen = int(xs+xe)//2, self.opt['fine_size']//32*8
             yc = max(ylen//2, min(h-1 - ylen//2, yc))
             xc = max(xlen//2, min(w-1 - xlen//2, xc))
             ys, ye, xs, xe = yc - ylen//2, yc + ylen//2, xc - xlen//2, xc + xlen//2
@@ -218,7 +219,7 @@ class Vid2VidModelD(Model, ABC):
     def get_all_skipped_frames(self, frames_all, real_B, fake_B, flow_ref, conf_ref, t_scales, tD, n_frames_load, i, flowNet):
         real_B_all, fake_B_all, flow_ref_all, conf_ref_all = frames_all
         if t_scales > 0:
-            if self.opt.sparse_D:          
+            if self.opt['sparse_D']:
                 real_B_all, real_B_skipped = get_skipped_frames_sparse(real_B_all, real_B, t_scales, tD, n_frames_load, i)
                 fake_B_all, fake_B_skipped = get_skipped_frames_sparse(fake_B_all, fake_B, t_scales, tD, n_frames_load, i)
                 flow_ref_all, flow_ref_skipped = get_skipped_frames_sparse(flow_ref_all, flow_ref, t_scales, tD, n_frames_load, i, is_flow=True)
@@ -248,7 +249,7 @@ class Vid2VidModelD(Model, ABC):
 
     def save(self, label):
         save_network(self.netD, 'D', label, self.save_dir)
-        for s in range(self.opt.n_scales_temporal):
+        for s in range(self.opt['n_scales_temporal']):
             save_network(getattr(self, 'netD_T'+str(s)), 'D_T'+str(s), label, self.save_dir)
 
 
